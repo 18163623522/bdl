@@ -23,7 +23,7 @@ import UiSelect from '../../ui/Select.vue'
 import UiStatusBadge from '../../ui/StatusBadge.vue'
 import UiTextField from '../../ui/TextField.vue'
 import { scheduledLocalError, toDateTimeLocalValue, toScheduledIso } from '../../utils/schedule'
-import { speedLimitMibError, toBytesPerSecond } from '../../utils/speedLimit'
+import { speedLimitMbError, toBytesPerSecond } from '../../utils/speedLimit'
 
 const parse = useParseStore()
 const settings = useSettingsStore()
@@ -43,7 +43,7 @@ const mediaPreferences = ref(cloneMediaPreferences())
 const audioQuality = ref('best')
 const videoCodec = ref<VideoCodecPreference>('auto')
 const scheduledLocal = ref('')
-const taskSpeedLimitMib = ref('')
+const taskSpeedLimitMb = ref('')
 const activeTab = ref('general')
 const defaultsRevision = ref(0)
 const tabs = [{ label: '常规', value: 'general' }, { label: '画质与音频', value: 'media' }, { label: '附加内容', value: 'assets' }, { label: '调度', value: 'schedule' }]
@@ -80,7 +80,7 @@ const activeLoading = computed(() => selectedSourceIds.value.some((sourceId) => 
 const includesVideo = computed(() => mediaMode.value !== 'audio_only')
 const includesAudio = computed(() => mediaMode.value !== 'video_only')
 const scheduleError = computed(() => scheduledLocalError(scheduledLocal.value, scheduleValidationNow.value))
-const taskSpeedLimitError = computed(() => speedLimitMibError(taskSpeedLimitMib.value))
+const taskSpeedLimitError = computed(() => speedLimitMbError(taskSpeedLimitMb.value))
 const embeddingFormatError = computed(() =>
   outputExtension.value !== 'mkv' && (embedCover.value || embedSubtitles.value)
     ? '嵌入封面和字幕仅支持 MKV，请改用 MKV 或关闭本次嵌入。'
@@ -161,7 +161,7 @@ const restoreDefaults = () => {
   embedCover.value = androidPlatform ? false : defaults.embed_cover
   embedSubtitles.value = androidPlatform ? false : defaults.embed_subtitles
   scheduledLocal.value = ''
-  taskSpeedLimitMib.value = ''
+  taskSpeedLimitMb.value = ''
 }
 
 const openDialog = async () => {
@@ -236,7 +236,7 @@ const createTasks = async (duplicatePolicy: DuplicateTaskPolicy = 'ask') => {
     },
     duplicatePolicy,
     scheduledAt: scheduledLocal.value ? toScheduledIso(scheduledLocal.value) : undefined,
-    speedLimitBytesPerSecond: toBytesPerSecond(taskSpeedLimitMib.value),
+    speedLimitBytesPerSecond: toBytesPerSecond(taskSpeedLimitMb.value),
   })
   if (result?.failures.length) {
     const firstFailure = result.failures[0]
@@ -363,7 +363,7 @@ const chooseDocumentTreeOutput = async () => {
         </div>
         <div v-show="activeTab === 'schedule'" class="grid grid-cols-2 gap-3 max-[600px]:grid-cols-1">
           <UiTextField v-model="scheduledLocal" type="datetime-local" label="开始时间（可选）" :min="scheduleMin" :error="scheduleError" helper="留空时立即加入下载队列" />
-          <UiTextField v-model="taskSpeedLimitMib" label="单任务限速（MiB/s）" placeholder="留空时不单独限速" :error="taskSpeedLimitError ?? undefined" helper="留空时仅受全局限速影响" />
+          <UiTextField v-model="taskSpeedLimitMb" label="单任务限速（MB/s）" placeholder="留空时不单独限速" :error="taskSpeedLimitError ?? undefined" helper="留空时仅受全局限速影响" />
         </div>
       </div>
       <UiInlineNotice v-if="embeddingFormatError || namingError || scheduleError || taskSpeedLimitError" tone="danger">{{ embeddingFormatError ?? namingError ?? scheduleError ?? taskSpeedLimitError }}</UiInlineNotice>

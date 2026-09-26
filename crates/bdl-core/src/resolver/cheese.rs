@@ -527,11 +527,7 @@ fn map_stream(
     stream: ResolvedCheeseDashStream,
     acquired_at: DateTime<Utc>,
 ) -> MediaStream {
-    let mut urls = Vec::with_capacity(1 + stream.backup_urls.len());
-    push_unique_url(&mut urls, stream.base_url);
-    for url in stream.backup_urls {
-        push_unique_url(&mut urls, url);
-    }
+    let urls = super::media_urls(stream.base_url, stream.backup_urls);
 
     MediaStream {
         id: format!(
@@ -560,12 +556,6 @@ fn page_request_from_info(page_number: u32, page_size: u32, fallback: PageReques
 
 fn positive_u32(value: u32) -> Option<u32> {
     (value > 0).then_some(value)
-}
-
-fn push_unique_url(urls: &mut Vec<String>, url: String) {
-    if !url.trim().is_empty() && !urls.iter().any(|existing| existing == &url) {
-        urls.push(url);
-    }
 }
 
 fn default_stream_headers() -> Vec<HeaderPair> {

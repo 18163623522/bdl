@@ -8,7 +8,7 @@ use bdl_core::account::{
     AccountLibraryFolderKind, AccountLibraryPage, AccountSummary, ImportedCookie,
     account_library_page, verify_cookie_session,
 };
-use bdl_core::fetcher::FetchCancelToken;
+use bdl_core::fetcher::{BandwidthLimiter, FetchCancelToken};
 use bdl_core::ids::{PartId, SourceId};
 use bdl_core::input::{ClassifiedInput, classify_input};
 use bdl_core::model::{
@@ -64,6 +64,7 @@ pub struct AppState {
     queue: Mutex<Vec<DownloadTask>>,
     storage: Mutex<TaskStorage>,
     settings: Mutex<SettingsSnapshot>,
+    global_limiter: Arc<BandwidthLimiter>,
     settings_path: PathBuf,
     data_dir: PathBuf,
     account: Mutex<AccountSnapshot>,
@@ -186,6 +187,9 @@ impl AppState {
             parse_sources: Mutex::new(HashMap::new()),
             queue: Mutex::new(queue),
             storage: Mutex::new(storage),
+            global_limiter: Arc::new(BandwidthLimiter::new(
+                settings.global_speed_limit_bytes_per_second,
+            )),
             settings: Mutex::new(settings),
             settings_path,
             data_dir,
@@ -969,6 +973,10 @@ impl AppState {
             .clone())
     }
 
+    pub(crate) fn global_limiter(&self) -> Arc<BandwidthLimiter> {
+        self.global_limiter.clone()
+    }
+
     pub fn data_dir(&self) -> PathBuf {
         self.data_dir.clone()
     }
@@ -1024,10 +1032,12 @@ impl AppState {
         let settings = settings.normalized();
         settings.validate()?;
         save_settings(&self.settings_path, &settings)?;
+        let global_speed_limit = settings.global_speed_limit_bytes_per_second;
         *self
             .settings
             .lock()
             .map_err(|_| state_poisoned("settings"))? = settings;
+        self.global_limiter.set_limit(global_speed_limit);
         self.notify_queue_changed();
         self.settings()
     }
@@ -1667,6 +1677,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use bdl_core::account::AccountSummary;
+    use bdl_core::fetcher::BandwidthLimiter;
     use bdl_core::ids::{GroupId, ItemId, PartId, SourceId};
     use bdl_core::input::ClassifiedInput;
     use bdl_core::model::{
@@ -2419,6 +2430,25 @@ mod tests {
         let _ = std::fs::remove_dir_all(data_dir);
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn successive_settings_updates_reach_the_active_global_limiter() {
+        let data_dir = temp_state_dir();
+        let state = test_state_with_tasks(&data_dir, Vec::new());
+        let active_limiter = state.global_limiter();
+
+        for limit in [4, 8, 2] {
+            let mut settings = state.settings().expect("settings should load");
+            settings.global_speed_limit_bytes_per_second = Some(limit);
+            state.update_settings(settings).expect("limit should save");
+            active_limiter.acquire(limit).await;
+        }
+
+        let started = tokio::time::Instant::now();
+        active_limiter.acquire(2).await;
+        assert_eq!(started.elapsed(), std::time::Duration::from_secs(1));
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
     #[tokio::test]
     async fn settings_update_wakes_a_waiting_worker_and_exposes_the_latest_snapshot() {
         let data_dir = temp_state_dir();
@@ -2880,6 +2910,7 @@ mod tests {
             queue: Mutex::new(tasks),
             storage: Mutex::new(storage),
             settings: Mutex::new(AppSettings::default()),
+            global_limiter: std::sync::Arc::new(BandwidthLimiter::new(None)),
             settings_path: data_dir.join("settings.json"),
             data_dir: data_dir.to_path_buf(),
             account: Mutex::new(AccountSummary::default()),

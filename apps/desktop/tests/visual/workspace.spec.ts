@@ -450,7 +450,7 @@ test('mobile library uses compact covers and shared page actions', async ({ page
   await page.screenshot({ path: testInfo.outputPath('reference-personal.png') });
   await page.getByRole('button', { name: /下载设置/ }).click();
   await page.getByRole('button', { name: '下载 目录、并发与恢复' }).click();
-  await page.getByLabel('全局下载限速（MiB/s）', { exact: true }).fill('10');
+  await page.getByLabel('全局下载限速（MB/s）', { exact: true }).fill('10');
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.getByRole('button', { name: '保存', exact: true })).toBeDisabled();
   await page.screenshot({ path: testInfo.outputPath('mobile-settings.png') });
@@ -663,7 +663,7 @@ test('mobile redesign keeps content first with populated lists and bottom sheets
   await expect(page.locator('.mobile-header')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('redesign-settings.png') });
   await page.getByRole('button', { name: '下载 目录、并发与恢复' }).click();
-  await expect(page.getByLabel('全局下载限速（MiB/s）', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('全局下载限速（MB/s）', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '返回设置' }).click();
   await expect(page.locator('.settings-category')).toHaveCount(6);
   await page.getByRole('button', { name: '返回我的' }).click();

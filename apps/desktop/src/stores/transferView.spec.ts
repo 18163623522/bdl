@@ -54,7 +54,7 @@ describe('scheduled transfer task view', () => {
     const diagnostic = createTaskDiagnosticView(task)
 
     expect(view.secondaryActions.map((action) => action.kind)).toContain('speed_limit')
-    expect(diagnostic.impact).toContain('限速 2 MiB/s')
+    expect(diagnostic.impact).toContain('限速 2.1 MB/s')
   })
 })
 

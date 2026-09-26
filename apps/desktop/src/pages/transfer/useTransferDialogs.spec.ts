@@ -33,13 +33,13 @@ describe('transfer dialogs', () => {
   });
 
   it('loads and submits an existing speed limit', async () => {
-    const store = queue([task({ speed_limit_bytes_per_second: 2_621_440 })]);
+    const store = queue([task({ speed_limit_bytes_per_second: 2_500_000 })]);
     store.setSpeedLimit.mockResolvedValue(true);
     const dialogs = useTransferDialogs(store);
     dialogs.openSpeedLimitDialog('task:one');
 
-    expect(dialogs.speedLimitMib.value).toBe('2.5');
+    expect(dialogs.speedLimitMb.value).toBe('2.5');
     expect(await dialogs.submitSpeedLimit()).toBe(true);
-    expect(store.setSpeedLimit).toHaveBeenCalledWith('task:one', 2_621_440);
+    expect(store.setSpeedLimit).toHaveBeenCalledWith('task:one', 2_500_000);
   });
 });

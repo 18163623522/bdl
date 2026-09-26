@@ -2,7 +2,7 @@ import { computed, ref } from 'vue';
 
 import type { DownloadTask } from '../../api/dto';
 import { scheduledLocalError, toDateTimeLocalValue, toScheduledIso } from '../../utils/schedule';
-import { speedLimitMibError, toBytesPerSecond, toMibPerSecondInput } from '../../utils/speedLimit';
+import { speedLimitMbError, toBytesPerSecond, toMbPerSecondInput } from '../../utils/speedLimit';
 
 export interface TransferDialogQueue {
   tasks: DownloadTask[];
@@ -18,10 +18,10 @@ export const useTransferDialogs = (queue: TransferDialogQueue, now: () => number
   const scheduleValidationNow = ref(now());
   const speedLimitDialogOpen = ref(false);
   const speedLimitTaskId = ref<string | null>(null);
-  const speedLimitMib = ref('');
+  const speedLimitMb = ref('');
 
   const scheduleError = computed(() => scheduledLocalError(scheduleLocal.value, scheduleValidationNow.value, true));
-  const speedLimitError = computed(() => speedLimitMibError(speedLimitMib.value));
+  const speedLimitError = computed(() => speedLimitMbError(speedLimitMb.value));
 
   const openScheduleDialog = (taskId: string) => {
     const currentTime = now();
@@ -46,13 +46,13 @@ export const useTransferDialogs = (queue: TransferDialogQueue, now: () => number
   const openSpeedLimitDialog = (taskId: string) => {
     const task = queue.tasks.find((candidate) => candidate.id === taskId);
     speedLimitTaskId.value = taskId;
-    speedLimitMib.value = toMibPerSecondInput(task?.speed_limit_bytes_per_second);
+    speedLimitMb.value = toMbPerSecondInput(task?.speed_limit_bytes_per_second);
     speedLimitDialogOpen.value = true;
   };
 
   const submitSpeedLimit = async () => {
     if (!speedLimitTaskId.value || speedLimitError.value) return false;
-    const updated = await queue.setSpeedLimit(speedLimitTaskId.value, toBytesPerSecond(speedLimitMib.value));
+    const updated = await queue.setSpeedLimit(speedLimitTaskId.value, toBytesPerSecond(speedLimitMb.value));
     if (updated) speedLimitDialogOpen.value = false;
     return Boolean(updated);
   };
@@ -63,7 +63,7 @@ export const useTransferDialogs = (queue: TransferDialogQueue, now: () => number
     scheduleMin,
     scheduleError,
     speedLimitDialogOpen,
-    speedLimitMib,
+    speedLimitMb,
     speedLimitError,
     openScheduleDialog,
     submitSchedule,

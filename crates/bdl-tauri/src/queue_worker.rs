@@ -43,15 +43,12 @@ pub(crate) fn start(app: &AppHandle) {
 }
 
 async fn run(app: &AppHandle, state: &AppState) -> CommandResult<()> {
-    let global_limiter = Arc::new(BandwidthLimiter::new(
-        state.settings()?.global_speed_limit_bytes_per_second,
-    ));
+    let global_limiter = state.global_limiter();
     let mut running = FuturesUnordered::new();
     let mut execution_active = false;
 
     loop {
         let current_settings = state.settings()?;
-        global_limiter.set_limit(current_settings.global_speed_limit_bytes_per_second);
         let concurrent_tasks = concurrent_tasks(&current_settings);
         while running.len() < concurrent_tasks {
             let Some(task) = state.take_next_startable_task()? else {

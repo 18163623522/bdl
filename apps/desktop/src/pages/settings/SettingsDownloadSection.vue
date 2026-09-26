@@ -15,7 +15,7 @@ const {
   settingsDownloadDir,
   settingsConcurrentTasks,
   settingsRetryCount,
-  settingsGlobalSpeedLimitMib,
+  settingsGlobalSpeedLimitMb,
   settingsGlobalSpeedLimitError,
   updateGlobalSpeedLimit,
   settingsAutoRefreshExpiredUrls,
@@ -45,8 +45,8 @@ const {
       <UiSelect v-model="settingsRetryCount" label="失败自动重试次数" :options="retryCountOptions" />
     </div>
     <UiTextField
-      :model-value="settingsGlobalSpeedLimitMib"
-      label="全局下载限速（MiB/s）"
+      :model-value="settingsGlobalSpeedLimitMb"
+      label="全局下载限速（MB/s）"
       placeholder="留空时不限速"
       :error="settingsGlobalSpeedLimitError ?? undefined"
       @update:model-value="updateGlobalSpeedLimit"

@@ -29,7 +29,7 @@ const {
   scheduleMin,
   scheduleError,
   speedLimitDialogOpen,
-  speedLimitMib,
+  speedLimitMb,
   speedLimitError,
   submitSchedule,
   submitSpeedLimit,
@@ -206,8 +206,8 @@ const beginManaging = (taskId: string) => {
 
     <UiDialog v-model="speedLimitDialogOpen" title="设置单任务限速">
       <UiTextField
-        v-model="speedLimitMib"
-        label="最大下载速度（MiB/s）"
+        v-model="speedLimitMb"
+        label="最大下载速度（MB/s）"
         placeholder="留空时不单独限速"
         :error="speedLimitError ?? undefined"
         helper="留空时仅受全局限速影响；同一任务的所有分段共享此额度"

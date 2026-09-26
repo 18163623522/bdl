@@ -10,7 +10,7 @@ import BulkActionBar from '../ui/BulkActionBar.vue';
 import TaskInspector from '../ui/TaskInspector.vue';
 import TransferTaskTable from '../ui/TransferTaskTable.vue';
 import { useTransferPage } from "./useTransferPage";
-const { queue, ui, completedSearch, transferSort, taskDetailOpen, selectedLogs, selectedLogsLoading, selectedProgress, selectedDetailTitle, openTaskDetail, refreshSelectedLogs, scheduleDialogOpen, scheduleLocal, scheduleMin, scheduleError, speedLimitDialogOpen, speedLimitMib, speedLimitError, submitSchedule, submitSpeedLimit, handleTaskAction, queueFilter, tabs, transferSortOptions, taskViews, pausableTaskIds, cancellableTaskIds, resumableTaskIds, retryableTaskIds, removableTaskIds, runBulkPause, runBulkCancel, runBulkResume, runBulkRetry, runBulkRefreshRetry, runBulkRemove, runClearCompleted, completedTaskCount, emptyTitle, emptyDescription, contextMenu, contextTaskView, contextActions, openContextMenu, closeContextMenu, runContextAction, contextIcon } = useTransferPage();
+const { queue, ui, completedSearch, transferSort, taskDetailOpen, selectedLogs, selectedLogsLoading, selectedProgress, selectedDetailTitle, openTaskDetail, refreshSelectedLogs, scheduleDialogOpen, scheduleLocal, scheduleMin, scheduleError, speedLimitDialogOpen, speedLimitMb, speedLimitError, submitSchedule, submitSpeedLimit, handleTaskAction, queueFilter, tabs, transferSortOptions, taskViews, pausableTaskIds, cancellableTaskIds, resumableTaskIds, retryableTaskIds, removableTaskIds, runBulkPause, runBulkCancel, runBulkResume, runBulkRetry, runBulkRefreshRetry, runBulkRemove, runClearCompleted, completedTaskCount, emptyTitle, emptyDescription, contextMenu, contextTaskView, contextActions, openContextMenu, closeContextMenu, runContextAction, contextIcon } = useTransferPage();
 </script>
 <template>
   <section class="page-grid transfer-page">
@@ -106,8 +106,8 @@ const { queue, ui, completedSearch, transferSort, taskDetailOpen, selectedLogs, 
 
     <UiDialog v-model="speedLimitDialogOpen" title="设置单任务限速">
       <UiTextField
-        v-model="speedLimitMib"
-        label="最大下载速度（MiB/s）"
+        v-model="speedLimitMb"
+        label="最大下载速度（MB/s）"
         placeholder="留空时不单独限速"
         :error="speedLimitError ?? undefined"
         helper="留空时仅受全局限速影响；同一任务的所有分段共享此额度"

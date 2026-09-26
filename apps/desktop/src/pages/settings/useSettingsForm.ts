@@ -2,7 +2,7 @@ import { computed, onMounted, ref } from 'vue';
 
 import { defaultNamingTemplate, embeddingContainerError, useSettingsStore } from '../../stores/settings';
 import { isAndroidPlatform } from '../../utils/platform';
-import { speedLimitMibError, toBytesPerSecond, toMibPerSecondInput } from '../../utils/speedLimit';
+import { speedLimitMbError, toBytesPerSecond, toMbPerSecondInput } from '../../utils/speedLimit';
 
 export function useSettingsForm() {
   const settings = useSettingsStore();
@@ -71,17 +71,17 @@ export function useSettingsForm() {
     get: () => String(settings.draft.segment_count),
     set: (value: string) => settings.setSegmentCount(value),
   });
-  const settingsGlobalSpeedLimitMib = ref('');
-  const settingsGlobalSpeedLimitError = computed(() => speedLimitMibError(settingsGlobalSpeedLimitMib.value));
+  const settingsGlobalSpeedLimitMb = ref('');
+  const settingsGlobalSpeedLimitError = computed(() => speedLimitMbError(settingsGlobalSpeedLimitMb.value));
   const settingsGlobalSpeedInputDirty = computed(
     () =>
-      settingsGlobalSpeedLimitMib.value.trim() !==
-      toMibPerSecondInput(settings.draft.global_speed_limit_bytes_per_second),
+      settingsGlobalSpeedLimitMb.value.trim() !==
+      toMbPerSecondInput(settings.draft.global_speed_limit_bytes_per_second),
   );
   const settingsFormChanged = computed(() => settings.changed || settingsGlobalSpeedInputDirty.value);
   const settingsEmbeddingFormatError = computed(() => embeddingContainerError(settings.draft));
   const updateGlobalSpeedLimit = (value: string) => {
-    settingsGlobalSpeedLimitMib.value = value;
+    settingsGlobalSpeedLimitMb.value = value;
     if (!settingsGlobalSpeedLimitError.value) {
       settings.setGlobalSpeedLimitBytesPerSecond(toBytesPerSecond(value) ?? null);
     }
@@ -152,19 +152,19 @@ export function useSettingsForm() {
   const resetSettingsDraft = () => {
     settings.resetDraft();
     applyPlatformSettingsConstraints();
-    settingsGlobalSpeedLimitMib.value = toMibPerSecondInput(settings.draft.global_speed_limit_bytes_per_second);
+    settingsGlobalSpeedLimitMb.value = toMbPerSecondInput(settings.draft.global_speed_limit_bytes_per_second);
   };
 
   const restoreDefaultSettings = () => {
     settings.restoreDefaults();
     applyPlatformSettingsConstraints();
-    settingsGlobalSpeedLimitMib.value = toMibPerSecondInput(settings.draft.global_speed_limit_bytes_per_second);
+    settingsGlobalSpeedLimitMb.value = toMbPerSecondInput(settings.draft.global_speed_limit_bytes_per_second);
   };
 
   const saveSettings = async () => {
     if (settingsGlobalSpeedLimitError.value) return;
     await settings.save();
-    settingsGlobalSpeedLimitMib.value = toMibPerSecondInput(settings.draft.global_speed_limit_bytes_per_second);
+    settingsGlobalSpeedLimitMb.value = toMbPerSecondInput(settings.draft.global_speed_limit_bytes_per_second);
   };
 
   const formatNamingVariable = (name: string): string => `{${name}}`;
@@ -172,7 +172,7 @@ export function useSettingsForm() {
   onMounted(async () => {
     await settings.ensureLoaded();
     applyPlatformSettingsConstraints();
-    settingsGlobalSpeedLimitMib.value = toMibPerSecondInput(settings.draft.global_speed_limit_bytes_per_second);
+    settingsGlobalSpeedLimitMb.value = toMbPerSecondInput(settings.draft.global_speed_limit_bytes_per_second);
   });
 
   return {
@@ -193,7 +193,7 @@ export function useSettingsForm() {
     settingsConcurrentTasks,
     settingsRetryCount,
     settingsSegmentCount,
-    settingsGlobalSpeedLimitMib,
+    settingsGlobalSpeedLimitMb,
     settingsGlobalSpeedLimitError,
     settingsFormChanged,
     settingsEmbeddingFormatError,
