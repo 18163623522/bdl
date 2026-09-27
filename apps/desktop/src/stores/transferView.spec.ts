@@ -204,7 +204,7 @@ describe('completed transfer task warnings', () => {
 
     expect(view.speedLabel).toBe('--')
     expect(view.etaLabel).toBe('--')
-    expect(view.sizeLabel).toBe('128 MB / 128 MB')
+    expect(view.sizeLabel).toBe('128 MB')
   })
 
   it('hides desktop output actions when the platform cannot open local output paths', () => {

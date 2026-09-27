@@ -69,6 +69,7 @@ pub fn run() {
             bdl_tauri::commands::mobile_save_image_to_gallery,
             bdl_tauri::commands::mobile_prepare_notifications,
             bdl_tauri::commands::queue_list,
+            bdl_tauri::commands::queue_output_sizes,
             bdl_tauri::commands::queue_startup_recovery,
             bdl_tauri::commands::queue_dismiss_startup_recovery,
             bdl_tauri::commands::queue_logs,

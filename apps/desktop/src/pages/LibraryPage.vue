@@ -14,7 +14,7 @@ const { account, library, ui, query, failedCoverIds, detailFolder, detailLoading
 <template>
   <section class="page-grid grid-cols-1" aria-label="账号内容库">
     <section class="panel library-panel">
-      <div class="shrink-0">
+      <div v-if="!detailFolder" class="shrink-0">
         <UiTabs v-model="categoryFilter" :tabs="categoryTabs" />
       </div>
 
@@ -59,7 +59,7 @@ const { account, library, ui, query, failedCoverIds, detailFolder, detailLoading
           <label class="library-search">
             <span class="sr-only">搜索当前分类</span>
             <UIcon name="i-tabler-search" aria-hidden="true" />
-            <input v-model="query" type="search" placeholder="搜索标题、创建者或简介" />
+            <input v-model="query" type="search" placeholder="搜索标题或创建者" />
           </label>
         </div>
 
@@ -122,13 +122,10 @@ referrerpolicy="no-referrer"
               </div>
             </div>
             <div class="library-card-copy">
-              <div>
-                <h3 :title="item.title">{{ item.title }}</h3>
-                <p>{{ item.owner_name || '我的收藏夹' }}</p>
-              </div>
-              <p v-if="item.description" class="library-description">{{ item.description }}</p>
+              <h3 :title="item.title">{{ item.title }}</h3>
               <div class="library-card-meta">
-                <span>{{ item.media_count }} 个视频</span>
+                <span class="library-owner" :title="item.owner_name || '我的收藏夹'">{{ item.owner_name || '我的收藏夹' }}</span>
+                <span class="library-count">{{ item.media_count }} 个视频</span>
               </div>
             </div>
           </article>

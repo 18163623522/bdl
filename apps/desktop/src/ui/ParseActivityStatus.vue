@@ -1,9 +1,18 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { parseProgress } from '../api/tauri'
 
 const props = defineProps<{ sourceId: string; stopping?: boolean }>()
-const seconds = ref(0)
+const now = ref(Date.now())
+const waitingUntil = ref(0)
+const seconds = computed(() => Math.max(0, Math.ceil((waitingUntil.value - now.value) / 1000)))
+const updateClock = () => { now.value = Date.now() }
+let clock: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  clock = setInterval(updateClock, 250)
+  document.addEventListener('visibilitychange', updateClock)
+  window.addEventListener('focus', updateClock)
+})
 const queued = ref(false)
 let generation = 0
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -11,14 +20,16 @@ let timer: ReturnType<typeof setTimeout> | undefined
 watch(() => props.sourceId, (sourceId) => {
   const current = ++generation
   clearTimeout(timer)
-  seconds.value = 0
+  waitingUntil.value = 0
   queued.value = false
   const poll = async () => {
     try {
+      const requestedAt = Date.now()
       const progress = await parseProgress(sourceId)
       if (current !== generation) return
-      seconds.value = progress.waiting_seconds
-      queued.value = progress.queued
+      waitingUntil.value = progress.active ? requestedAt + progress.waiting_seconds * 1000 : 0
+      updateClock()
+      queued.value = progress.active && progress.queued
     } catch {
       // Keep the activity label when a status update is unavailable.
     }
@@ -27,7 +38,13 @@ watch(() => props.sourceId, (sourceId) => {
   void poll()
 }, { immediate: true })
 
-onUnmounted(() => { generation++; clearTimeout(timer) })
+onUnmounted(() => {
+  generation++
+  clearTimeout(timer)
+  clearInterval(clock)
+  document.removeEventListener('visibilitychange', updateClock)
+  window.removeEventListener('focus', updateClock)
+})
 </script>
 
 <template>

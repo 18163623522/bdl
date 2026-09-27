@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { TransferTaskView } from '../stores/transferView'
 import TransferTaskTable from './TransferTaskTable.vue'
+import UiCheckbox from './Checkbox.vue'
 
 const view = (index: number): TransferTaskView => ({
   id: `task:${index}`,
@@ -28,7 +29,7 @@ const view = (index: number): TransferTaskView => ({
 })
 
 describe('TransferTaskTable virtualization', () => {
-  it('keeps selection scope complete while rendering a bounded large-list window', () => {
+  it('keeps selection scope complete while rendering a bounded large-list window', async () => {
     const views = Array.from({ length: 250 }, (_, index) => view(index))
     const wrapper = mount(TransferTaskTable, {
       props: { views, selectedTaskId: null, selectedTaskIds: [] },
@@ -44,8 +45,15 @@ describe('TransferTaskTable virtualization', () => {
       },
     })
 
-    expect(wrapper.attributes('aria-rowcount')).toBe('251')
+    expect(wrapper.find('.task-table-row').attributes('aria-setsize')).toBe('250')
     expect(wrapper.findAll('.task-table-row').length).toBeLessThan(views.length)
-    expect(wrapper.find('.virtual-task-list').attributes('style')).toContain('15500px')
+    expect(wrapper.find('.virtual-task-list').attributes('style')).toContain('26000px')
+    const scroll = wrapper.find('.transfer-scroll')
+    Object.defineProperty(scroll.element, 'scrollTop', { value: 25400, configurable: true })
+    Object.defineProperty(scroll.element, 'clientHeight', { value: 600, configurable: true })
+    await scroll.trigger('scroll')
+    expect(wrapper.findAll('.task-table-row').at(-1)?.attributes('aria-posinset')).toBe('250')
+    wrapper.find('.transfer-selection-bar').findComponent(UiCheckbox).vm.$emit('update:modelValue', true)
+    expect(wrapper.emitted('toggleVisibleSelection')?.[0]?.[0]).toEqual(views.map((view) => view.id))
   })
 })

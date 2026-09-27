@@ -1,5 +1,6 @@
 import type { DownloadResourceIntent, DownloadTask, QueueLogEntry, TaskStatus } from '../api/dto'
 import { formatSpeedLimit } from '../utils/speedLimit'
+import { bilibiliTaskUrl } from '../utils/bilibiliLinks'
 
 export type QueueFilter = 'active' | 'failed' | 'completed' | 'all'
 
@@ -62,6 +63,10 @@ const defaultTransferPlatformCapabilities: TransferPlatformCapabilities = {
 
 export interface TransferTaskView {
   id: string
+  coverUrl?: string | null
+  durationSeconds?: number | null
+  sourceUrl?: string | null
+  mediaLabel?: string
   isCompleted: boolean
   displayTitle: string
   subtitle: string
@@ -91,6 +96,7 @@ export const createTransferTaskView = (
   transferProgress: TransferProgressSnapshot | null = null,
   capabilities: TransferPlatformCapabilities = defaultTransferPlatformCapabilities,
   stageProgress: number | null = null,
+  outputSizeBytes: number | null = null,
 ): TransferTaskView => {
   const titleParts = splitTaskTitle(task.title)
   const issue = classifyTaskIssue(task, logs)
@@ -102,6 +108,10 @@ export const createTransferTaskView = (
 
   return {
     id: task.id,
+    coverUrl: task.refresh_intent?.cover_url,
+    durationSeconds: task.refresh_intent?.duration_seconds,
+    sourceUrl: bilibiliTaskUrl(task),
+    mediaLabel: [titleParts.subtitle, task.media_selection?.video_codec?.toUpperCase(), task.media_selection?.container?.toUpperCase()].filter(Boolean).join(' · '),
     isCompleted: task.status === 'completed',
     displayTitle: titleParts.displayTitle,
     subtitle: titleParts.subtitle,
@@ -118,7 +128,8 @@ export const createTransferTaskView = (
       : activelyTransferring && transferProgress
         ? etaLabel(transferProgress)
         : '--',
-    sizeLabel: transferProgress ? sizeLabel(transferProgress) : '--',
+    sizeLabel: task.status === 'completed' && outputSizeBytes != null ? formatBytes(outputSizeBytes)
+      : transferProgress ? task.status === 'completed' && transferProgress.downloadedBytes > 0 ? formatBytes(transferProgress.downloadedBytes) : sizeLabel(transferProgress) : '--',
     issueLabel: completedWithWarnings ? '-' : issue.label,
     shortLocation: shortLocation(displayOutputPath),
     fullLocation: outputDir(displayOutputPath),
@@ -187,7 +198,7 @@ const etaLabel = (progress: TransferProgressSnapshot): string => {
   return `${Math.ceil(seconds / 3600)}h`
 }
 
-const formatBytes = (value: number): string => {
+export const formatBytes = (value: number): string => {
   if (!Number.isFinite(value) || value <= 0) {
     return '0 B'
   }

@@ -5,7 +5,6 @@ import UiCheckbox from '../../ui/Checkbox.vue';
 import UiIconButton from '../../ui/IconButton.vue';
 import UiSelect from '../../ui/Select.vue';
 import UiTextField from '../../ui/TextField.vue';
-import SettingsEnvironmentSummary from './SettingsEnvironmentSummary.vue';
 import { concurrentTaskOptions, retryCountOptions } from './settingsCatalog';
 import type { SettingsForm } from './useSettingsForm';
 
@@ -64,14 +63,6 @@ const {
       />
     </div>
     <ParseRulesEditor v-model="settings.draft.parse_rules" />
-    <SettingsEnvironmentSummary
-      v-if="desktopPaths"
-      :health="settings.environmentHealth"
-      :checking="settings.environmentChecking"
-      @check="settings.checkEnvironment"
-      @choose-ffmpeg="settings.chooseFfmpegPath"
-      @use-system-ffmpeg="settings.clearFfmpegPath"
-    />
   </section>
 </template>
 

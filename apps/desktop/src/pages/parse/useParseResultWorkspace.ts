@@ -10,6 +10,7 @@ export function useParseResultWorkspace(onDownload: () => void) {
   const loadBatchSize = ref('50');
   const activeSource = computed(() => parse.activeSource);
   const selectedIds = computed(() => parse.activeSelection);
+  const selectedSet = computed(() => new Set(selectedIds.value));
   const selectedCount = computed(() => selectedIds.value.length);
   const totalPartCount = computed(() => (activeSource.value ? sourcePartCount(activeSource.value) : 0));
   const tableRows = computed(() => (activeSource.value ? flattenResultRows(toTreeNodes(activeSource.value)) : []));
@@ -31,7 +32,7 @@ export function useParseResultWorkspace(onDownload: () => void) {
   const allRowsSelected = computed(
     () =>
       tableRows.value.length > 0 &&
-      tableRows.value.flatMap((row) => row.partIds).every((partId) => selectedIds.value.includes(partId)),
+      tableRows.value.flatMap((row) => row.partIds).every((partId) => selectedSet.value.has(partId)),
   );
   const canCreateTasks = computed(() => Boolean(activeSource.value && selectedCount.value > 0 && !activeLoading.value));
   const createTaskLabel = computed(() => `下载所选 (${selectedCount.value})`);

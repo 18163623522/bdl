@@ -27,7 +27,7 @@ const {
 <template>
   <section class="page-grid grid-cols-1">
     <section class="panel parse-panel min-h-0 gap-4 overflow-hidden bg-(--color-surface) p-4">
-      <UiWorkflowSteps v-model="activeStage" :steps="workflowSteps" />
+      <UiWorkflowSteps v-if="activeStage === 'source'" v-model="activeStage" :steps="workflowSteps" />
 
       <UiInlineNotice
         v-if="parse.notice"

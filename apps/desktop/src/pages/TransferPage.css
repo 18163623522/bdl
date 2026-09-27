@@ -13,14 +13,52 @@
 
 .transfer-list-tools {
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 190px;
-  align-items: end;
-  gap: var(--space-12);
 }
 
 .transfer-toolbar {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.transfer-toolbar > .ui-tabs {
+  flex: 1;
+  width: auto;
+}
+
+.transfer-sort {
+  width: 160px;
+  flex-shrink: 0;
+}
+
+.transfer-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding-inline: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-6);
+  color: var(--color-muted);
+  background: var(--color-inset);
+}
+
+.transfer-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--font-13);
+}
+
+.transfer-search:focus-within {
+  outline: 2px solid var(--color-focus-outline);
+  outline-offset: -2px;
 }
 
 .transfer-footer {

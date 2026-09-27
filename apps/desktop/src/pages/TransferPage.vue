@@ -3,14 +3,61 @@ import UiButton from '../ui/Button.vue';
 import UiDialog from '../ui/Dialog.vue';
 import UiEmptyState from '../ui/EmptyState.vue';
 import UiInlineNotice from '../ui/InlineNotice.vue';
-import UiSelect from '../ui/Select.vue';
 import UiTabs from '../ui/Tabs.vue';
 import UiTextField from '../ui/TextField.vue';
 import BulkActionBar from '../ui/BulkActionBar.vue';
 import TaskInspector from '../ui/TaskInspector.vue';
 import TransferTaskTable from '../ui/TransferTaskTable.vue';
-import { useTransferPage } from "./useTransferPage";
-const { queue, ui, completedSearch, transferSort, taskDetailOpen, selectedLogs, selectedLogsLoading, selectedProgress, selectedDetailTitle, openTaskDetail, refreshSelectedLogs, scheduleDialogOpen, scheduleLocal, scheduleMin, scheduleError, speedLimitDialogOpen, speedLimitMb, speedLimitError, submitSchedule, submitSpeedLimit, handleTaskAction, queueFilter, tabs, transferSortOptions, taskViews, pausableTaskIds, cancellableTaskIds, resumableTaskIds, retryableTaskIds, removableTaskIds, runBulkPause, runBulkCancel, runBulkResume, runBulkRetry, runBulkRefreshRetry, runBulkRemove, runClearCompleted, completedTaskCount, emptyTitle, emptyDescription, contextMenu, contextTaskView, contextActions, openContextMenu, closeContextMenu, runContextAction, contextIcon } = useTransferPage();
+import { useTransferPage } from './useTransferPage';
+const {
+  queue,
+  ui,
+  completedSearch,
+  transferSort,
+  taskDetailOpen,
+  selectedLogs,
+  selectedLogsLoading,
+  selectedProgress,
+  selectedDetailTitle,
+  openTaskDetail,
+  refreshSelectedLogs,
+  scheduleDialogOpen,
+  scheduleLocal,
+  scheduleMin,
+  scheduleError,
+  speedLimitDialogOpen,
+  speedLimitMb,
+  speedLimitError,
+  submitSchedule,
+  submitSpeedLimit,
+  handleTaskAction,
+  queueFilter,
+  tabs,
+  transferSortOptions,
+  taskViews,
+  pausableTaskIds,
+  cancellableTaskIds,
+  resumableTaskIds,
+  retryableTaskIds,
+  removableTaskIds,
+  runBulkPause,
+  runBulkCancel,
+  runBulkResume,
+  runBulkRetry,
+  runBulkRefreshRetry,
+  runBulkRemove,
+  runClearCompleted,
+  completedTaskCount,
+  emptyTitle,
+  emptyDescription,
+  contextMenu,
+  contextTaskView,
+  contextActions,
+  openContextMenu,
+  closeContextMenu,
+  runContextAction,
+  contextIcon,
+} = useTransferPage();
 </script>
 <template>
   <section class="page-grid transfer-page">
@@ -21,17 +68,29 @@ const { queue, ui, completedSearch, transferSort, taskDetailOpen, selectedLogs, 
 
       <div class="transfer-toolbar">
         <UiTabs v-model="queueFilter" :tabs="tabs" />
-      </div>
-
-      <div class="transfer-list-tools">
-        <UiTextField
-          v-if="queue.activeFilter === 'completed'"
-          v-model="completedSearch"
-          label="搜索已完成"
-          placeholder="标题、来源或保存路径"
+        <USelect
+          v-model="transferSort"
+          :items="transferSortOptions"
+          value-key="value"
+          label-key="label"
+          aria-label="列表排序"
+          class="transfer-sort"
+          size="sm"
           :disabled="queue.loading"
         />
-        <UiSelect v-model="transferSort" label="列表排序" :options="transferSortOptions" :disabled="queue.loading" />
+      </div>
+
+      <div v-if="queue.activeFilter === 'completed'" class="transfer-list-tools">
+        <label class="transfer-search">
+          <UIcon name="i-tabler-search" aria-hidden="true" />
+          <input
+            v-model="completedSearch"
+            type="search"
+            aria-label="搜索已完成"
+            placeholder="搜索标题、来源或保存路径"
+            :disabled="queue.loading"
+          />
+        </label>
       </div>
 
       <div v-if="taskViews.length" class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
@@ -46,6 +105,7 @@ const { queue, ui, completedSearch, transferSort, taskDetailOpen, selectedLogs, 
           @toggle-visible-selection="queue.setVisibleTaskSelection"
           @task-action="handleTaskAction"
           @open-context-menu="openContextMenu"
+          @visible-tasks="queue.loadOutputSizes"
         />
       </div>
       <UiEmptyState v-else :title="emptyTitle" :description="emptyDescription || undefined" layout="stacked" compact>

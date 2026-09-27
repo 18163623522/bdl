@@ -775,6 +775,32 @@ pub fn queue_list(app: AppHandle, state: State<'_, AppState>) -> CommandResult<V
 }
 
 #[tauri::command]
+pub async fn queue_output_sizes(
+    state: State<'_, AppState>,
+    task_ids: Vec<String>,
+) -> CommandResult<std::collections::BTreeMap<String, Option<u64>>> {
+    let requested: std::collections::HashSet<_> = task_ids.into_iter().take(200).collect();
+    let tasks = state.queue_snapshot()?;
+    let mut sizes = std::collections::BTreeMap::new();
+    for task in tasks {
+        if !requested.contains(&task.id) || task.status != TaskStatus::Completed {
+            continue;
+        }
+        let size = if task.export_target.is_none() {
+            fs::metadata(&task.output_path)
+                .await
+                .ok()
+                .filter(|metadata| metadata.is_file())
+                .map(|metadata| metadata.len())
+        } else {
+            None
+        };
+        sizes.insert(task.id, size);
+    }
+    Ok(sizes)
+}
+
+#[tauri::command]
 pub fn mobile_pick_export_directory(
     state: State<'_, AppState>,
 ) -> CommandResult<DocumentTreeDirectory> {

@@ -722,12 +722,11 @@ const collectPartIds = (tree: NormalizedSourceTree): string[] =>
 const uniquePartIds = (partIds: string[]): string[] => Array.from(new Set(partIds))
 
 const waitForPacedParsing = async (delayMs: number, stopRequested: () => boolean): Promise<boolean> => {
-  let remaining = Math.max(0, delayMs)
-  while (remaining > 0) {
+  const deadline = Date.now() + Math.max(0, delayMs)
+  while (Date.now() < deadline) {
     if (stopRequested()) return false
-    const waitMs = Math.min(PACED_PARSE_POLL_INTERVAL_MS, remaining)
+    const waitMs = Math.min(PACED_PARSE_POLL_INTERVAL_MS, deadline - Date.now())
     await new Promise<void>((resolve) => window.setTimeout(resolve, waitMs))
-    remaining -= waitMs
   }
   return !stopRequested()
 }

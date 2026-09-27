@@ -12,6 +12,7 @@ pub(crate) struct ParsePacer(Mutex<PaceState>);
 
 #[derive(Default)]
 struct PaceState {
+    last_completed: Option<Instant>,
     next: Option<Instant>,
     blocked_until: Option<Instant>,
     pages: usize,
@@ -70,7 +71,16 @@ impl ParsePacer {
                 ),
             });
         }
-        if let Some(next) = state.next {
+        // Time spent idle is already a rest, including between manual batches.
+        if rules.rest_seconds > 0
+            && state
+                .last_completed
+                .is_some_and(|last| last.elapsed() >= Duration::from_secs(rules.rest_seconds))
+        {
+            state.pages = 0;
+            state.pages_since_rest = 0;
+        }
+        if let Some(next) = state.next.filter(|next| *next > Instant::now()) {
             phase(Phase::Waiting(next));
             tokio::time::sleep_until(next).await;
         }
@@ -85,6 +95,7 @@ impl ParsePacer {
             "resolver operation completed"
         );
         let now = Instant::now();
+        state.last_completed = Some(now);
         state.next = None;
         match result {
             Ok(value) => {
@@ -146,6 +157,52 @@ fn is_transient(error: &BdlError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_time_resets_partial_batch_without_adding_another_rest() {
+        let pacer = ParsePacer::default();
+        let rules = ParseRules {
+            pages_per_round: 5,
+            interval_seconds: 1,
+            rest_seconds: 3,
+        };
+        for _ in 0..4 {
+            pacer.run(rules, async { Ok(()) }, |_| 1).await.unwrap();
+        }
+        tokio::time::advance(Duration::from_secs(30)).await;
+        let resumed = Instant::now();
+        for _ in 0..5 {
+            pacer.run(rules, async { Ok(()) }, |_| 1).await.unwrap();
+        }
+        assert_eq!(resumed.elapsed(), Duration::ZERO);
+        pacer.run(rules, async { Ok(()) }, |_| 1).await.unwrap();
+        assert_eq!(resumed.elapsed(), Duration::from_secs(3));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn elapsed_cooldown_does_not_emit_waiting_or_wait_again() {
+        let pacer = ParsePacer::default();
+        let rules = ParseRules {
+            pages_per_round: 1,
+            interval_seconds: 3,
+            rest_seconds: 3,
+        };
+        pacer.run(rules, async { Ok(()) }, |_| 1).await.unwrap();
+        tokio::time::advance(Duration::from_secs(30)).await;
+        let resumed = Instant::now();
+        pacer
+            .run_observed(
+                rules,
+                async { Ok(()) },
+                |_| 1,
+                |phase| {
+                    assert!(!matches!(phase, Phase::Waiting(_)));
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(resumed.elapsed(), Duration::ZERO);
+    }
 
     #[tokio::test(start_paused = true)]
     async fn cancel_cooldown_releases_shared_pool_without_consuming_a_page() {

@@ -84,6 +84,7 @@ export function useTransferPage() {
         queue.taskTransferProgress(task.id),
         transferCapabilities,
         queue.taskStageProgress(task),
+        queue.outputSizesByTask[task.id]?.path === task.output_path ? queue.outputSizesByTask[task.id]?.bytes ?? null : null,
       ),
     ),
   );

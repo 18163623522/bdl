@@ -2,6 +2,7 @@
 import UiButton from '../../ui/Button.vue';
 import UiSelect from '../../ui/Select.vue';
 import UiTextField from '../../ui/TextField.vue';
+import SettingsEnvironmentSummary from './SettingsEnvironmentSummary.vue';
 import { codecOptions, missingQualityOptions, segmentCountOptions } from './settingsCatalog';
 import type { SettingsForm } from './useSettingsForm';
 
@@ -31,6 +32,13 @@ const { settings, settingsCodec, settingsMissingQualityPolicy, settingsSegmentCo
         >使用系统 FFmpeg</UiButton
       >
     </div>
-
+    <SettingsEnvironmentSummary
+      v-if="desktopPaths"
+      :health="settings.environmentHealth"
+      :checking="settings.environmentChecking"
+      @check="settings.checkEnvironment"
+      @choose-ffmpeg="settings.chooseFfmpegPath"
+      @use-system-ffmpeg="settings.clearFfmpegPath"
+    />
   </section>
 </template>

@@ -219,6 +219,9 @@ export const queueRemove = (taskId: string) => invokeCommand<QueueRemoveResponse
 
 export const queueOpenFile = (taskId: string) => invokeCommand<void>('queue_open_file', { taskId })
 
+export const queueOutputSizes = (taskIds: string[]) =>
+  invokeCommand<Record<string, number | null>>('queue_output_sizes', { taskIds })
+
 export const queueOpenDir = (taskId: string) => invokeCommand<void>('queue_open_dir', { taskId })
 
 export const accountGet = () => invokeCommand<AccountSummary>('account_get')

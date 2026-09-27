@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue';
 import { coverUrl } from '../../utils/coverUrl';
 import { formatDuration } from '../../utils/duration';
-const props = defineProps<{ src?: string | null; duration?: number | null }>();
+const props = defineProps<{ src?: string | null; duration?: number | null; showFallbackIcon?: boolean }>();
 const failed = ref(false);
 watch(
   () => props.src,
@@ -21,7 +21,7 @@ watch(
       loading="lazy"
       @error="failed = true"
     />
-    <UIcon v-else name="i-tabler-video" class="artwork-fallback" aria-hidden="true" />
+    <UIcon v-else-if="showFallbackIcon !== false" name="i-tabler-video" class="artwork-fallback" aria-hidden="true" />
     <span v-if="duration != null && duration > 0" class="artwork-duration">{{ formatDuration(duration) }}</span>
   </span>
 </template>

@@ -3,7 +3,7 @@ import UiButton from '../../ui/Button.vue';
 import UiEmptyState from '../../ui/EmptyState.vue';
 import UiInlineNotice from '../../ui/InlineNotice.vue';
 import SelectionActionBar from '../../ui/SelectionActionBar.vue';
-import ParseResultTable from './ParseResultTable.vue';
+import SourceMediaList from './SourceMediaList.vue';
 
 import SourceLoadStatus from './SourceLoadStatus.vue';
 import SourceParseControls from './SourceParseControls.vue';
@@ -24,7 +24,6 @@ const {
   activeLoading,
   activeError,
   hasMore,
-  allRowsSelected,
   canCreateTasks,
   createTaskLabel,
   toggleAllResults,
@@ -36,7 +35,6 @@ const {
   parseAndDownload,
   returnToSource,
   toggleNode,
-  sourceKindLabels,
 } = useParseResultWorkspace(() => emit('download'));
 </script>
 <template>
@@ -62,9 +60,7 @@ const {
           <strong class="source-title truncate text-base text-(--color-text)" :title="activeSource.source.title">
             {{ activeSource.source.title }}
           </strong>
-          <span class="shrink-0 text-[11px] font-bold text-(--color-muted)">
-            {{ sourceKindLabels[activeSource.source.kind] }}
-          </span>
+
         </div>
       </div>
 
@@ -97,10 +93,11 @@ const {
       </div>
     </div>
 
-    <ParseResultTable
+    <SourceMediaList
       v-if="tableRows.length"
       class="min-h-0 flex-1"
       :rows="tableRows"
+      :source="activeSource"
       :selected-ids="selectedIds"
       :disabled="activeLoading"
       @toggle="toggleNode"
@@ -120,15 +117,7 @@ const {
     <SelectionActionBar :selected-count="selectedCount" :total-count="totalPartCount">
       <template #selection>
         <UiButton
-          size="compact"
-          variant="secondary"
-          :disabled="activeLoading || tableRows.length === 0"
-          @click="toggleAllResults"
-        >
-          {{ allRowsSelected ? '取消全选' : '全选已加载' }}
-        </UiButton>
-        <UiButton
-          v-if="selectedCount > 0 && !allRowsSelected"
+          v-if="selectedCount > 0"
           size="compact"
           variant="ghost"
           :disabled="activeLoading"

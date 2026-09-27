@@ -22,6 +22,7 @@ import {
   queueLogs,
   queueOpenDir,
   queueOpenFile,
+  queueOutputSizes,
   queuePause,
   queueRefreshUrlsAndRetry,
   queueRemove,
@@ -55,6 +56,8 @@ interface QueueState {
   logsByTask: Record<string, QueueLogEntry[]>
   logsLoadingByTask: Record<string, boolean>
   progressByTask: Record<string, QueueTaskProgressState>
+  outputSizesByTask: Record<string, { path: string; bytes: number | null }>
+  outputSizesLoading: string[]
   startupRecovery: StartupRecoverySnapshot | null
   startupRecoveryLoading: boolean
   startupRecoveryDismissed: boolean
@@ -94,6 +97,8 @@ export const useQueueStore = defineStore('queue', {
     logsByTask: {},
     logsLoadingByTask: {},
     progressByTask: {},
+    outputSizesByTask: {},
+    outputSizesLoading: [],
     startupRecovery: null,
     startupRecoveryLoading: false,
     startupRecoveryDismissed: false,
@@ -116,6 +121,28 @@ export const useQueueStore = defineStore('queue', {
     },
   },
   actions: {
+    async loadOutputSizes(taskIds: string[]) {
+      const requested = new Set(taskIds)
+      const tasks = this.tasks.filter((task) => requested.has(task.id) && task.status === 'completed'
+        && this.outputSizesByTask[task.id]?.path !== task.output_path && !this.outputSizesLoading.includes(task.id))
+      this.outputSizesLoading.push(...tasks.map((task) => task.id))
+      try {
+        for (let offset = 0; offset < tasks.length; offset += 50) {
+          const batch = tasks.slice(offset, offset + 50)
+          const sizes = await queueOutputSizes(batch.map((task) => task.id))
+          for (const task of batch) {
+            if (this.tasks.some((current) => current.id === task.id && current.status === 'completed' && current.output_path === task.output_path)) {
+              this.outputSizesByTask[task.id] = { path: task.output_path, bytes: sizes?.[task.id] ?? null }
+            }
+          }
+        }
+      } catch {
+        // File metadata is optional; playback reports missing or inaccessible files.
+      } finally {
+        const ids = new Set(tasks.map((task) => task.id))
+        this.outputSizesLoading = this.outputSizesLoading.filter((id) => !ids.has(id))
+      }
+    },
     async list() {
       const ui = useUiStore()
       this.loading = true
@@ -201,6 +228,9 @@ export const useQueueStore = defineStore('queue', {
       void this.loadLogs(taskId)
     },
     upsertTask(task: DownloadTask) {
+      if (task.status !== 'completed' || this.outputSizesByTask[task.id]?.path !== task.output_path) {
+        delete this.outputSizesByTask[task.id]
+      }
       const index = this.tasks.findIndex((candidate) => candidate.id === task.id)
       if (index === -1) {
         this.tasks.unshift(task)
@@ -430,6 +460,7 @@ export const useQueueStore = defineStore('queue', {
         delete this.logsByTask[taskId]
         delete this.logsLoadingByTask[taskId]
         delete this.progressByTask[taskId]
+        delete this.outputSizesByTask[taskId]
         this.ensureSelectedTask(true)
         if (this.selectedTaskId) {
           void this.loadLogs(this.selectedTaskId)

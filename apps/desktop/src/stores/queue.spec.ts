@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DownloadTask } from '../api/dto'
 import { useQueueStore } from './queue'
 
-const api = vi.hoisted(() => ({ queueList: vi.fn() }))
+const api = vi.hoisted(() => ({ queueList: vi.fn(), queueOutputSizes: vi.fn() }))
 vi.mock('../api/tauri', () => api)
 
 const task = (status: DownloadTask['status']): DownloadTask => ({
@@ -84,5 +84,40 @@ describe('queue stage progress', () => {
     })
 
     expect(queue.taskStageProgress(downloading)).toBe(85)
+  })
+})
+
+describe('completed output sizes', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    api.queueOutputSizes.mockReset()
+  })
+
+  it('reads only requested completed outputs and caches missing files too', async () => {
+    const queue = useQueueStore()
+    queue.tasks = [task('completed'), { ...task('downloading'), id: 'active' }, { ...task('completed'), id: 'hidden' }]
+    api.queueOutputSizes.mockResolvedValue({ 'task:mux': null })
+    await queue.loadOutputSizes(['task:mux', 'active'])
+    await queue.loadOutputSizes(['task:mux'])
+    expect(api.queueOutputSizes).toHaveBeenCalledExactlyOnceWith(['task:mux'])
+    expect(queue.outputSizesByTask['task:mux']).toEqual({ path: 'downloads/video.mp4', bytes: null })
+    queue.upsertTask({ ...task('completed'), output_path: 'downloads/new.mp4' })
+    api.queueOutputSizes.mockResolvedValue({ 'task:mux': 1024 })
+    await queue.loadOutputSizes(['task:mux'])
+    expect(queue.outputSizesByTask['task:mux']?.bytes).toBe(1024)
+  })
+
+  it('coalesces concurrent visible-range requests', async () => {
+    const queue = useQueueStore()
+    queue.tasks = [task('completed')]
+    let resolve!: (value: Record<string, number>) => void
+    api.queueOutputSizes.mockReturnValue(new Promise<Record<string, number>>((done) => { resolve = done }))
+    const first = queue.loadOutputSizes(['task:mux'])
+    await queue.loadOutputSizes(['task:mux'])
+    expect(api.queueOutputSizes).toHaveBeenCalledTimes(1)
+    resolve({ 'task:mux': 2048 })
+    await first
+    expect(queue.outputSizesLoading).toEqual([])
+    expect(queue.outputSizesByTask['task:mux']?.bytes).toBe(2048)
   })
 })

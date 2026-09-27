@@ -133,6 +133,29 @@ describe('parse store', () => {
     vi.useRealTimers()
   })
 
+  it('counts elapsed wall time instead of timer callbacks after suspension', async () => {
+    vi.useFakeTimers()
+    const first = sourceTree('favorite:sleep', '休眠恢复')
+    first.source.kind = 'favorite'
+    first.source.has_more = true
+    const second = structuredClone(first)
+    second.source.loaded_count += 1
+    const final = structuredClone(second)
+    final.source.loaded_count += 1
+    final.source.has_more = false
+    api.parseLoadMore.mockResolvedValueOnce(second).mockResolvedValueOnce(final)
+    const parse = useParseStore()
+    parse.upsertSource(first)
+    const parsing = parse.parseAllPaced(first.source.id, 1, 3000)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(api.parseLoadMore).toHaveBeenCalledTimes(1)
+    vi.setSystemTime(Date.now() + 30000)
+    await vi.advanceTimersByTimeAsync(100)
+    await expect(parsing).resolves.toBe('completed')
+    expect(api.parseLoadMore).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+
   it('stops paced parsing before the next chunk', async () => {
     vi.useFakeTimers()
     const firstPage = sourceTree('favorite:42', '大型收藏夹')
