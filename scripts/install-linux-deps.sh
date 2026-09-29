@@ -15,4 +15,4 @@ if ((EUID != 0)); then elevate=(sudo); fi
   build-essential pkg-config curl wget file patchelf \
   libwebkit2gtk-4.1-dev libssl-dev libxdo-dev \
   libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev \
-  ffmpeg xdg-utils
+  ffmpeg xdg-utils xvfb xauth x11-utils dbus-x11

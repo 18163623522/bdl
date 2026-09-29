@@ -41,6 +41,8 @@ jobs:
         run: pnpm --dir apps/desktop tauri build --bundles appimage,deb --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - name: Verify Linux package contents
         run: bash scripts/verify-linux-packages.sh ./target/release/bundle
+      - name: Verify AppImage starts as an ordinary user
+        run: xvfb-run -a dbus-run-session -- bash scripts/smoke-linux-appimage.sh ./target/release/bundle/appimage/*.AppImage
       - name: Upload Linux preview packages
         uses: actions/upload-artifact@v4
         with:

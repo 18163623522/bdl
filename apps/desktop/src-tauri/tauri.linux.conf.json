@@ -1,5 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBundleCommand": "bash ../../scripts/prepare-linux-appimage.sh"
+  },
   "bundle": {
     "targets": ["appimage", "deb"],
     "category": "Utility",

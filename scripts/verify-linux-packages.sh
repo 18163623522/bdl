@@ -15,4 +15,19 @@ contents="$(dpkg-deb --contents "${deb_files[0]}")"
 [[ "$contents" == *usr/bin/bdl-desktop* && "$contents" == *share/applications/* ]]
 [[ -s "${appimages[0]}" ]]
 file "${appimages[0]}" | grep -q 'ELF 64-bit.*x86-64'
-echo 'Linux package architecture, runtime dependencies and desktop entry verified.'
+appimage="$(realpath "${appimages[0]}")"
+extracted="$(mktemp -d)"
+trap 'rm -rf "$extracted"' EXIT
+# Inspect the finished image, not the AppDir that happened to produce it.
+(cd "$extracted" && "$appimage" --appimage-extract > /dev/null)
+for entry in AppRun AppRun.wrapped usr/bin/bdl-desktop; do
+  file_path="$extracted/squashfs-root/$entry"
+  [[ -f "$file_path" ]]
+  mode="$(stat -Lc '%a' "$file_path")"
+  # test -x alone passes for the build owner even with the broken 770 mode.
+  if (( (8#$mode & 0005) != 0005 )); then
+    echo "AppImage $entry is not readable/executable by other users (mode $mode)." >&2
+    exit 1
+  fi
+done
+echo 'Linux package architecture, dependencies, desktop entry and launcher permissions verified.'

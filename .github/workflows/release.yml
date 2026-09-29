@@ -110,6 +110,10 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/verify-linux-packages.sh ./target/release/bundle
 
+      - name: Verify AppImage starts as an ordinary user
+        if: runner.os == 'Linux'
+        run: xvfb-run -a dbus-run-session -- bash scripts/smoke-linux-appimage.sh ./target/release/bundle/appimage/*.AppImage
+
       - name: Verify macOS ad-hoc signature
         if: runner.os == 'macOS'
         shell: bash
