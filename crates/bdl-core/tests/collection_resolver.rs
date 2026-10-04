@@ -24,6 +24,59 @@ struct FakeSeriesApi {
     expected_request: PageRequest,
 }
 
+#[tokio::test]
+async fn mobile_collection_and_series_targets_reach_list_resolvers() -> Result<(), BdlError> {
+    use bdl_core::input::classify_input;
+
+    for path in [
+        "1001/lists/678?type=season",
+        "1001/channel/collectiondetail?sid=678",
+    ] {
+        let input = classify_input(&format!("https://m.bilibili.com/space/{path}"))?;
+        let tree = CollectionResolver::with_api(fake_collection_api())
+            .resolve(input, ResolveOptions::default())
+            .await?;
+        assert_eq!(tree.source.id.0, "collection:1001:678");
+        assert_eq!(
+            collection_ids_from_url(&tree.source.input)?,
+            CollectionInputIds {
+                mid: 1001,
+                season_id: 678,
+            }
+        );
+    }
+
+    for path in [
+        "1001/lists/987?type=series",
+        "1001/channel/seriesdetail?sid=987",
+    ] {
+        let input = classify_input(&format!("https://m.bilibili.com/space/{path}"))?;
+        let tree = SeriesResolver::with_api(fake_series_api())
+            .resolve(input, ResolveOptions::default())
+            .await?;
+        assert_eq!(tree.source.id.0, "series:1001:987");
+        assert_eq!(
+            series_ids_from_url(&tree.source.input)?,
+            SeriesInputIds {
+                mid: Some(1001),
+                series_id: 987,
+            }
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn collection_sid_is_only_used_for_collection_detail_paths() {
+    for input in [
+        "https://space.bilibili.com/1001/channel/other?sid=678",
+        "https://space.bilibili.com/1001/channel/seriesdetail?sid=678",
+        "https://space.bilibili.com/1001/channel/collectiondetail?sid=0",
+    ] {
+        assert!(collection_ids_from_url(input).is_err(), "{input}");
+    }
+}
+
 #[async_trait]
 impl CollectionApi for FakeCollectionApi {
     async fn collection_page(

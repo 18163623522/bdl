@@ -17,6 +17,40 @@ struct FakeCheeseApi {
     play_url: ResolvedCheesePlayUrl,
 }
 
+#[tokio::test]
+async fn mobile_course_share_targets_preserve_course_and_episode_identity() -> Result<(), BdlError>
+{
+    for (raw_url, expected_id) in [
+        (
+            "https://m.bilibili.com/cheese/play/ss123?share_source=COPY",
+            CheeseInputId::Season(123),
+        ),
+        (
+            "https://m.bilibili.com/cheese/play/ep456?share_source=COPY",
+            CheeseInputId::Episode(456),
+        ),
+    ] {
+        let tree = CheeseResolver::with_api(fake_api(
+            expected_id,
+            PageRequest {
+                page_number: 1,
+                page_size: 100,
+            },
+        ))
+        .resolve(
+            bdl_core::input::classify_input(raw_url)?,
+            ResolveOptions::default(),
+        )
+        .await?;
+        assert_eq!(tree.source.kind, SourceKind::Cheese);
+        assert_eq!(tree.source.id.0, "cheese:123");
+        assert_eq!(tree.source.input, raw_url);
+        assert_eq!(cheese_id_from_url(&tree.source.input)?, expected_id);
+        assert!(tree.source.loaded_count > 0);
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl CheeseApi for FakeCheeseApi {
     async fn page(

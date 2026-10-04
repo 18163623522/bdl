@@ -15,6 +15,32 @@ struct FakeBangumiApi {
     play_url: ResolvedBangumiPlayUrl,
 }
 
+#[tokio::test]
+async fn mobile_bangumi_share_targets_reach_season_and_episode_resolvers() -> Result<(), BdlError> {
+    for (raw_url, expected_id) in [
+        (
+            "https://m.bilibili.com/bangumi/play/ss123?share_source=COPY",
+            BangumiInputId::Season(123),
+        ),
+        (
+            "https://m.bilibili.com/bangumi/play/ep456?share_source=COPY",
+            BangumiInputId::Episode(456),
+        ),
+    ] {
+        let tree = BangumiResolver::with_api(fake_api(expected_id))
+            .resolve(
+                bdl_core::input::classify_input(raw_url)?,
+                ResolveOptions::default(),
+            )
+            .await?;
+        assert_eq!(tree.source.kind, SourceKind::Bangumi);
+        assert_eq!(tree.source.id.0, "bangumi:123");
+        assert_eq!(tree.source.input, raw_url);
+        assert!(tree.source.loaded_count > 0);
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl BangumiApi for FakeBangumiApi {
     async fn season(&self, id: BangumiInputId) -> Result<ResolvedBangumiSeason, BdlError> {

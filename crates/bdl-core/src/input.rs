@@ -131,7 +131,25 @@ fn classify_url(raw_url: &str, url: &Url) -> Option<ClassifiedInput> {
         return None;
     }
 
+    // Mobile profile shares use /space/<mid> instead of the desktop space host.
+    // Normalize before source classification so list resolvers and paging reuse
+    // the same desktop URL grammar, including all original query parameters.
+    if host == "m.bilibili.com"
+        && let Some(path) = url.path().strip_prefix("/space/")
+    {
+        let mut desktop = url.clone();
+        desktop.set_host(Some("space.bilibili.com")).ok()?;
+        desktop.set_path(&format!("/{path}"));
+        return classify_url(desktop.as_str(), &desktop);
+    }
+
     let segments = path_segments(url);
+
+    if favorite_id_from_path(url).is_some() {
+        return Some(ClassifiedInput::Favorite {
+            raw_url: raw_url.to_string(),
+        });
+    }
 
     if let Some(video) = classify_video_path(&segments) {
         return Some(video);
@@ -154,6 +172,18 @@ fn classify_url(raw_url: &str, url: &Url) -> Option<ClassifiedInput> {
             && let Some(mid) = space_mid(&segments)
         {
             return Some(ClassifiedInput::Uploader { mid });
+        }
+
+        if is_space_channel_path(&segments, "collectiondetail") {
+            return Some(ClassifiedInput::Collection {
+                raw_url: raw_url.to_string(),
+            });
+        }
+
+        if is_space_channel_path(&segments, "seriesdetail") {
+            return Some(ClassifiedInput::Series {
+                raw_url: raw_url.to_string(),
+            });
         }
 
         if is_space_list_path(&segments) {
@@ -288,6 +318,28 @@ fn is_space_list_path(segments: &[&str]) -> bool {
     segments
         .get(1)
         .is_some_and(|segment| segment.eq_ignore_ascii_case("lists"))
+}
+
+pub(crate) fn is_space_channel_path(segments: &[&str], detail: &str) -> bool {
+    segments.len() == 3
+        && segments[0].parse::<u64>().is_ok()
+        && path_starts_with(&segments[1..], &["channel", detail])
+}
+
+pub(crate) fn favorite_id_from_path(url: &Url) -> Option<u64> {
+    if !matches!(url.scheme(), "http" | "https") || !is_bilibili_host(url.host_str()?) {
+        return None;
+    }
+    let segments = path_segments(url);
+    let token = match segments.as_slice() {
+        ["medialist", "detail" | "play", token] | ["list", token] => token,
+        _ => return None,
+    };
+    let digits = token.strip_prefix("ml")?;
+    if digits.is_empty() || !digits.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse::<u64>().ok().filter(|id| *id > 0)
 }
 
 fn space_mid(segments: &[&str]) -> Option<u64> {

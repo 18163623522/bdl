@@ -156,6 +156,105 @@ fn preserves_raw_urls_for_supported_source_urls() {
 }
 
 #[test]
+fn classifies_mobile_space_share_targets() {
+    for input in [
+        "https://m.bilibili.com/space/4279370",
+        "https://m.bilibili.com/space/4279370/?plat_id=1&share_medium=android",
+        "分享 UP 主 https://m.bilibili.com/space/4279370。",
+    ] {
+        assert_eq!(
+            classify_input(input).unwrap(),
+            ClassifiedInput::Uploader { mid: 4279370 }
+        );
+    }
+
+    for (path, expected_kind) in [
+        ("12345/favlist?fid=678", SourceKind::Favorite),
+        (
+            "12345/favlist?fid=678&ftype=collect&ctype=21",
+            SourceKind::Collection,
+        ),
+        ("12345/lists/678?type=season", SourceKind::Collection),
+        ("12345/lists/987?type=series", SourceKind::Series),
+        (
+            "12345/channel/collectiondetail?sid=678",
+            SourceKind::Collection,
+        ),
+        ("12345/channel/seriesdetail?sid=987", SourceKind::Series),
+    ] {
+        let mobile = format!("https://m.bilibili.com/space/{path}&share_source=COPY");
+        let desktop = format!("https://space.bilibili.com/{path}&share_source=COPY");
+        let classified = classify_input(&mobile).unwrap();
+        assert_eq!(classified.source_kind(), expected_kind, "{mobile}");
+        assert_eq!(classified, classify_input(&desktop).unwrap());
+    }
+}
+
+#[test]
+fn classifies_mobile_share_targets_for_every_supported_source_kind() {
+    for (url, kind) in [
+        (
+            "https://m.bilibili.com/video/BV1xx411c7mD",
+            SourceKind::Video,
+        ),
+        ("https://m.bilibili.com/video/av170001", SourceKind::Video),
+        ("https://m.bilibili.com/space/12345", SourceKind::Uploader),
+        (
+            "https://m.bilibili.com/space/12345/favlist?fid=678",
+            SourceKind::Favorite,
+        ),
+        (
+            "https://m.bilibili.com/medialist/detail/ml678",
+            SourceKind::Favorite,
+        ),
+        (
+            "https://m.bilibili.com/space/12345/lists/678?type=season",
+            SourceKind::Collection,
+        ),
+        (
+            "https://m.bilibili.com/space/12345/lists/987?type=series",
+            SourceKind::Series,
+        ),
+        (
+            "https://m.bilibili.com/bangumi/play/ss123",
+            SourceKind::Bangumi,
+        ),
+        (
+            "https://m.bilibili.com/bangumi/play/ep456",
+            SourceKind::Bangumi,
+        ),
+        (
+            "https://m.bilibili.com/cheese/play/ss123",
+            SourceKind::Cheese,
+        ),
+        (
+            "https://m.bilibili.com/cheese/play/ep456",
+            SourceKind::Cheese,
+        ),
+    ] {
+        let separator = if url.contains('?') { '&' } else { '?' };
+        let share = format!(
+            "分享内容 https://bilibili.invalid/irrelevant {url}{separator}share_source=COPY。"
+        );
+        assert_eq!(classify_input(&share).unwrap().source_kind(), kind, "{url}");
+    }
+}
+
+#[test]
+fn mobile_space_normalization_does_not_accept_unrelated_paths_or_hosts() {
+    for input in [
+        "https://m.bilibili.com/space/not-a-mid",
+        "https://m.bilibili.com/space/4279370/dynamic",
+        "https://m.bilibili.com/spaceevil/4279370",
+        "https://example.com/space/4279370",
+        "https://m.bilibili.com.example.com/space/4279370",
+        "https://space.bilibili.com/12345/channel/other?sid=678",
+    ] {
+        assert!(classify_input(input).is_err(), "{input}");
+    }
+}
+
+#[test]
 fn rejects_invalid_or_overlong_bvid_tokens() {
     assert!(classify_input("BV1xx411c7mDextra").is_err());
     assert!(classify_input("https://www.bilibili.com/video/BV1xx411c7mDextra").is_err());

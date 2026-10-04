@@ -15,7 +15,7 @@ use super::paged::{PageRequest, PagedSourceKind, page_state};
 use super::{ResolveOptions, Resolver, bilibili_publish_date};
 use crate::error::{BdlError, BdlResult};
 use crate::ids::{GroupId, ItemId, PartId, SourceId};
-use crate::input::ClassifiedInput;
+use crate::input::{ClassifiedInput, is_space_channel_path};
 use crate::model::{
     AssetKind, FetchPolicy, NormalizedGroup, NormalizedItem, NormalizedPart, NormalizedSourceTree,
     SourceKind, SourceSummary,
@@ -413,6 +413,7 @@ pub fn collection_ids_from_url(raw_url: &str) -> BdlResult<CollectionInputIds> {
             message: "合集链接缺少 UP 主 mid，无法调用合集分页接口。".to_owned(),
         })?;
     let season_id = query_u64(&url, &["season_id"])
+        .or_else(|| channel_detail_id(&url, &segments, "collectiondetail"))
         .or_else(|| list_id_from_space_path(&url, &segments, &["season", "collection"]))
         .or_else(|| collected_favorite_id(&url, &segments))
         .ok_or_else(|| BdlError::InvalidInput {
@@ -598,6 +599,12 @@ fn collected_favorite_id(url: &Url, segments: &[&str]) -> Option<u64> {
     }
 
     query_u64(url, &["fid"])
+}
+
+fn channel_detail_id(url: &Url, segments: &[&str], detail: &str) -> Option<u64> {
+    (is_space_host(url.host_str()?) && is_space_channel_path(segments, detail))
+        .then(|| query_u64(url, &["sid"]))
+        .flatten()
 }
 
 fn query_u64(url: &Url, keys: &[&str]) -> Option<u64> {

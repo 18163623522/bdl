@@ -15,6 +15,48 @@ struct FakeFavoriteApi {
     expected_request: PageRequest,
 }
 
+#[tokio::test]
+async fn mobile_and_medialist_favorite_shares_preserve_paging_identity() -> Result<(), BdlError> {
+    use bdl_core::input::classify_input;
+
+    for raw_url in [
+        "https://m.bilibili.com/space/12345/favlist?fid=1052622027&share_source=COPY",
+        "https://www.bilibili.com/medialist/detail/ml1052622027?share_source=COPY",
+        "https://m.bilibili.com/medialist/detail/ml1052622027?share_source=COPY",
+        "https://www.bilibili.com/medialist/play/ml1052622027",
+        "https://www.bilibili.com/list/ml1052622027",
+    ] {
+        let tree = FavoriteResolver::with_api(fake_api())
+            .resolve(classify_input(raw_url)?, ResolveOptions::default())
+            .await?;
+        assert_eq!(tree.source.id.0, "favorite:1052622027");
+        assert_eq!(favorite_media_id_from_url(&tree.source.input)?, 1052622027);
+        assert!(tree.source.has_more);
+    }
+    Ok(())
+}
+
+#[test]
+fn favorite_ml_paths_reject_malformed_ids_and_external_hosts() {
+    for raw_url in [
+        "https://www.bilibili.com/medialist/detail/ml0",
+        "https://www.bilibili.com/medialist/detail/ml-123",
+        "https://www.bilibili.com/medialist/detail/ml123extra",
+        "https://www.bilibili.com/list/ml123/extra",
+        "https://example.com/list/ml123",
+    ] {
+        assert!(favorite_media_id_from_url(raw_url).is_err(), "{raw_url}");
+        assert!(
+            bdl_core::input::classify_input(raw_url).is_err(),
+            "{raw_url}"
+        );
+    }
+    assert_eq!(
+        favorite_media_id_from_url("https://www.bilibili.com/list/ml123?fid=456").unwrap(),
+        123
+    );
+}
+
 #[async_trait]
 impl FavoriteApi for FakeFavoriteApi {
     async fn list_detail(

@@ -1734,6 +1734,42 @@ mod tests {
         let _ = std::fs::remove_dir_all(data_dir);
     }
 
+    #[tokio::test]
+    #[ignore = "live Bilibili probe: set BDL_TEST_SHARE_URL, BDL_TEST_SHARE_KIND and BDL_TEST_SHARE_ID"]
+    async fn shared_container_live_parse_source() {
+        let input = std::env::var("BDL_TEST_SHARE_URL").expect("BDL_TEST_SHARE_URL");
+        let kind = std::env::var("BDL_TEST_SHARE_KIND").expect("BDL_TEST_SHARE_KIND");
+        let id = std::env::var("BDL_TEST_SHARE_ID").expect("BDL_TEST_SHARE_ID");
+        let data_dir = temp_state_dir();
+        let state = test_state_with_tasks(&data_dir, Vec::new());
+        if std::env::var("BDL_TEST_USE_SAVED_ACCOUNT").as_deref() == Ok("1") {
+            let cookie = SecureStore::new(&data_dir)
+                .load_cookie()
+                .expect("saved account credential should be readable")
+                .expect("saved account cookie should exist");
+            state.import_cookie(&cookie).expect("cookie should import");
+            let account = state
+                .verify_account()
+                .await
+                .expect("saved account session should verify");
+            assert!(account.logged_in, "saved account session has expired");
+        }
+        let result = state.parse_source_with_options(&input, false, true).await;
+        drop(state);
+        let _ = std::fs::remove_dir_all(data_dir);
+        let tree = result.expect("share should resolve through the application entry");
+        assert_eq!(super::source_kind_name(tree.source.kind), kind);
+        assert_eq!(tree.source.id.0, id);
+        assert!(tree.source.loaded_count > 0);
+        println!(
+            "source={} loaded={} total={:?} has_more={}",
+            tree.source.id.0,
+            tree.source.loaded_count,
+            tree.source.total_count,
+            tree.source.has_more
+        );
+    }
+
     #[test]
     fn startup_data_dir_uses_legacy_state_only_when_preferred_state_is_absent() {
         let root = temp_state_dir();

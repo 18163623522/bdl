@@ -195,14 +195,16 @@ pub fn favorite_media_id_from_url(raw_url: &str) -> BdlResult<u64> {
         message: "无法识别收藏夹链接。".to_owned(),
     })?;
 
-    url.query_pairs()
-        .find_map(|(key, value)| {
-            matches!(key.as_ref(), "fid" | "media_id")
-                .then(|| value.parse::<u64>().ok())
-                .flatten()
+    crate::input::favorite_id_from_path(&url)
+        .or_else(|| {
+            url.query_pairs().find_map(|(key, value)| {
+                matches!(key.as_ref(), "fid" | "media_id")
+                    .then(|| value.parse::<u64>().ok())
+                    .flatten()
+            })
         })
         .ok_or_else(|| BdlError::InvalidInput {
-            message: "收藏夹链接缺少 fid 或 media_id 参数。".to_owned(),
+            message: "收藏夹链接缺少 fid、media_id 参数或 ml ID。".to_owned(),
         })
 }
 
