@@ -76,7 +76,7 @@ export function useSettingsForm() {
       toMbPerSecondInput(settings.draft.global_speed_limit_bytes_per_second),
   );
   const settingsFormChanged = computed(() => settings.changed || settingsGlobalSpeedInputDirty.value);
-  const settingsEmbeddingFormatError = computed(() => embeddingContainerError(settings.draft));
+  const settingsEmbeddingFormatError = computed(() => settings.downloadPresetError ?? embeddingContainerError(settings.draft));
   const updateGlobalSpeedLimit = (value: string) => {
     settingsGlobalSpeedLimitMb.value = value;
     if (!settingsGlobalSpeedLimitError.value) {

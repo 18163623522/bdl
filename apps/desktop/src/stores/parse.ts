@@ -60,6 +60,7 @@ export interface ParseBatchEntry {
 }
 
 export interface CreateTaskOptions {
+  downloadPresetId?: string
   partIdsBySource?: Record<string, string[]>
   silent?: boolean
   downloadDir?: string | null
@@ -352,6 +353,7 @@ export const useParseStore = defineStore('parse', {
         const options: CreateTaskOptions = {
           downloadDir: defaults.download_dir ?? 'downloads', archiveMode: defaults.archive_mode,
           mediaMode: defaults.media_mode,
+          downloadPresetId: defaults.selected_download_preset,
           outputExtension: defaults.media_mode === 'audio_only' ? defaults.audio_output_format : defaults.output_extension, namingTemplate: defaults.naming_template,
           subtitleFormat: defaults.subtitle_format, danmakuFormat: defaults.danmaku_format,
           duplicateNamingStrategy: defaults.duplicate_naming_strategy, archiveAssets: defaults.archive_assets,
@@ -592,6 +594,7 @@ export const useParseStore = defineStore('parse', {
       }
       for (const sourceId of targets) {
         const estimate = await selectionEstimateSize({
+          download_preset_id: options.downloadPresetId,
           source_id: sourceId,
           part_ids: options.partIdsBySource?.[sourceId] ?? this.selectionBySource[sourceId] ?? [],
           missing_quality_policy: options.missingQualityPolicy ?? settings.saved.missing_quality_policy,
@@ -652,12 +655,13 @@ export const useParseStore = defineStore('parse', {
               part_ids: options.partIdsBySource?.[sourceId] ?? this.selectionBySource[sourceId] ?? [],
               output_dir: downloadDir || undefined,
               document_tree_output: documentTreeOutput ?? undefined,
+              naming_template: options.namingTemplate ?? settings.saved.naming_template,
+              duplicate_naming_strategy: options.duplicateNamingStrategy ?? settings.saved.duplicate_naming_strategy,
+              ...(options.downloadPresetId ? { download_preset_id: options.downloadPresetId } : {
               archive_mode: options.archiveMode ?? settings.saved.archive_mode,
               output_extension: options.outputExtension ?? (audioOnly ? settings.saved.audio_output_format : settings.saved.output_extension),
               subtitle_format: options.subtitleFormat ?? settings.saved.subtitle_format,
               danmaku_format: options.danmakuFormat ?? settings.saved.danmaku_format,
-              naming_template: options.namingTemplate ?? settings.saved.naming_template,
-              duplicate_naming_strategy: options.duplicateNamingStrategy ?? settings.saved.duplicate_naming_strategy,
               archive_assets: options.archiveAssets ?? settings.saved.archive_assets,
               retain_raw_streams: options.retainRawStreams ?? settings.saved.retain_raw_streams,
               embed_cover: !audioOnly && (options.embedCover ?? settings.saved.embed_cover),
@@ -668,6 +672,7 @@ export const useParseStore = defineStore('parse', {
               audio_quality: options.audioQuality ?? settings.saved.audio_quality,
               codec: options.codec ?? settings.saved.codec,
               media_preferences: mediaPreferences,
+              }),
               duplicate_policy: options.duplicatePolicy ?? 'ask',
               scheduled_at: options.scheduledAt,
               speed_limit_bytes_per_second: options.speedLimitBytesPerSecond,

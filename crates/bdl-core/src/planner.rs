@@ -37,6 +37,7 @@ pub enum DownloadMediaMode {
     AudioVideo,
     VideoOnly,
     AudioOnly,
+    AssetsOnly,
 }
 
 impl DownloadMediaMode {
@@ -45,6 +46,7 @@ impl DownloadMediaMode {
             "audio_video" => Ok(Self::AudioVideo),
             "video_only" => Ok(Self::VideoOnly),
             "audio_only" => Ok(Self::AudioOnly),
+            "assets_only" => Ok(Self::AssetsOnly),
             other => Err(BdlError::Planning {
                 message: format!("下载内容设置无效：`{other}`。"),
             }),
@@ -189,6 +191,7 @@ pub struct DownloadOptions {
     pub missing_quality_policy: MissingQualityPolicy,
     pub archive_assets: ArchiveAssetSelection,
     pub processing: Option<crate::queue::TaskProcessingOptions>,
+    pub workflow: Option<crate::workflow::DownloadWorkflow>,
 }
 
 impl DownloadOptions {
@@ -207,6 +210,7 @@ impl DownloadOptions {
             missing_quality_policy: MissingQualityPolicy::default(),
             archive_assets: ArchiveAssetSelection::all(),
             processing: None,
+            workflow: None,
         }
     }
 
@@ -270,6 +274,18 @@ pub fn estimate_selected_parts_download_size(
             ),
         })?;
         let duration = selected.part.duration_seconds;
+        if options.workflow.is_some() {
+            unknown_streams += complete_archive_resources(
+                "estimate",
+                Path::new("estimate.tmp"),
+                selected.item,
+                selected.part,
+                options.selected_archive_assets(),
+            )
+            .iter()
+            .filter(|resource| resource.intent != DownloadResourceIntent::Nfo)
+            .count();
+        }
         if options.media_mode.includes_video() {
             add_stream_size_estimate(
                 select_video_stream(selected.part, options)?,
@@ -343,7 +359,11 @@ fn plan_part(
 ) -> BdlResult<Option<DownloadTask>> {
     let item = selected.item;
     let part = selected.part;
-    let task_id = format!("task:{}:{}", tree.source.id.0, part.id.0);
+    let mut task_id = format!("task:{}:{}", tree.source.id.0, part.id.0);
+    if let Some(workflow) = &options.workflow {
+        workflow.validate()?;
+        task_id.push_str(&format!(":workflow:{}", workflow.fingerprint()));
+    }
     let title = task_title(item, part);
     let video = if options.media_mode.includes_video() {
         Some(select_video_stream(part, options)?)
@@ -355,8 +375,18 @@ fn plan_part(
     } else {
         None
     };
-    let Some(output_path) =
-        output_path_for(tree, &selected, video, audio, options, reserved_paths)?
+    let mut effective_options = options.clone();
+    if let Some(workflow) = &options.workflow {
+        effective_options.output_extension = workflow_output_extension(workflow, item, part)?;
+    }
+    let Some(output_path) = output_path_for(
+        tree,
+        &selected,
+        video,
+        audio,
+        &effective_options,
+        reserved_paths,
+    )?
     else {
         return Ok(None);
     };
@@ -396,7 +426,12 @@ fn plan_part(
         ));
     }
 
-    Ok(Some(DownloadTask {
+    let artifacts = options
+        .workflow
+        .as_ref()
+        .map(|workflow| workflow_artifacts(workflow, &resources, &output_path))
+        .unwrap_or_default();
+    let task = DownloadTask {
         id: task_id,
         title,
         source_id: tree.source.id.0.clone(),
@@ -412,6 +447,9 @@ fn plan_part(
             },
         ),
         media_selection: DownloadTaskMediaSelection {
+            outputs_verified: false,
+            workflow: options.workflow.clone(),
+            artifacts,
             processing: options.processing,
             video_quality: video
                 .map(stream_quality_label)
@@ -420,11 +458,156 @@ fn plan_part(
                 .map(stream_quality_label)
                 .unwrap_or_else(|| "none".to_owned()),
             video_codec: video.map(stream_codec_label).unwrap_or("none").to_owned(),
-            container: options.output_extension.clone(),
+            container: effective_options.output_extension.clone(),
         },
         scheduled_at: None,
         speed_limit_bytes_per_second: None,
-    }))
+    };
+    if options.workflow.is_some() {
+        reserved_paths.remove(&task.output_path);
+        return crate::workflow::reserve_task_paths(
+            task,
+            reserved_paths,
+            options.duplicate_naming_strategy,
+        );
+    }
+    Ok(Some(task))
+}
+
+fn workflow_output_extension(
+    workflow: &crate::workflow::DownloadWorkflow,
+    item: &NormalizedItem,
+    part: &NormalizedPart,
+) -> BdlResult<String> {
+    if workflow.has_media_output() {
+        return Ok(workflow.container.clone());
+    }
+    if workflow.video.enabled && (workflow.video.save || workflow.video.retain_original) {
+        return Ok("m4s".into());
+    }
+    if workflow.audio.enabled && (workflow.audio.save || workflow.audio.retain_original) {
+        return Ok(if workflow.audio.save {
+            workflow.audio.format.clone()
+        } else {
+            "m4s".into()
+        });
+    }
+    for (intent, rule) in [
+        (DownloadResourceIntent::Cover, &workflow.cover),
+        (DownloadResourceIntent::Subtitle, &workflow.subtitles),
+        (DownloadResourceIntent::Danmaku, &workflow.danmaku),
+    ] {
+        if !rule.enabled
+            || (!rule.save && !rule.retain_original)
+            || !asset_is_available(item, part, intent)
+        {
+            continue;
+        }
+        let source = asset_resource("extension", Path::new("output.tmp"), item, part, intent);
+        return Ok(if rule.save && rule.format != "original" {
+            rule.format.clone()
+        } else {
+            source
+                .target_path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("bin")
+                .into()
+        });
+    }
+    if workflow.nfo {
+        return Ok("nfo".into());
+    }
+    Err(BdlError::Planning {
+        message: if workflow.subtitles.enabled {
+            "没有可下载的字幕。"
+        } else {
+            "来源没有所选的可下载内容。"
+        }
+        .into(),
+    })
+}
+
+fn workflow_artifacts(
+    workflow: &crate::workflow::DownloadWorkflow,
+    resources: &[DownloadResource],
+    output: &Path,
+) -> Vec<crate::workflow::DownloadArtifact> {
+    use crate::workflow::DownloadArtifact;
+    let mut artifacts = Vec::new();
+    if workflow.has_media_output() {
+        artifacts.push(DownloadArtifact {
+            path: output.into(),
+            intent: None,
+            resource_id: None,
+            original: false,
+            document_uri: None,
+        });
+    }
+    for resource in resources {
+        let (save, retain, format) = match resource.intent {
+            DownloadResourceIntent::Video => {
+                (workflow.video.save, workflow.video.retain_original, "m4s")
+            }
+            DownloadResourceIntent::Audio => (
+                workflow.audio.save,
+                workflow.audio.retain_original,
+                workflow.audio.format.as_str(),
+            ),
+            DownloadResourceIntent::Cover => (
+                workflow.cover.save,
+                workflow.cover.retain_original,
+                workflow.cover.format.as_str(),
+            ),
+            DownloadResourceIntent::Subtitle => (
+                workflow.subtitles.save,
+                workflow.subtitles.retain_original,
+                workflow.subtitles.format.as_str(),
+            ),
+            DownloadResourceIntent::Danmaku => (
+                workflow.danmaku.save,
+                workflow.danmaku.retain_original,
+                workflow.danmaku.format.as_str(),
+            ),
+            DownloadResourceIntent::Nfo => (true, false, "original"),
+        };
+        if save {
+            let mut path = if format == "original" {
+                resource.target_path.clone()
+            } else {
+                resource.target_path.with_extension(format)
+            };
+            if artifacts.is_empty() {
+                path = output.into();
+            }
+            artifacts.push(DownloadArtifact {
+                path,
+                intent: Some(resource.intent),
+                resource_id: Some(resource.id.clone()),
+                original: format == "original" || format == "m4s" || format == "xml",
+                document_uri: None,
+            });
+        }
+        if retain
+            && !artifacts
+                .iter()
+                .any(|a| a.resource_id.as_ref() == Some(&resource.id) && a.original)
+        {
+            let path = if artifacts.is_empty() {
+                output.into()
+            } else {
+                resource.target_path.clone()
+            };
+            artifacts.push(DownloadArtifact {
+                path,
+                intent: Some(resource.intent),
+                resource_id: Some(resource.id.clone()),
+                original: true,
+                document_uri: None,
+            });
+        }
+    }
+    artifacts
 }
 
 fn select_video_stream<'a>(
@@ -815,10 +998,15 @@ fn output_path_for(
     let item = selected.item;
     let part = selected.part;
     let today = Local::now().date_naive().to_string();
-    let representative_stream = video.or(audio).ok_or_else(|| BdlError::Planning {
-        message: format!("`{}` 没有可下载的媒体流。", part.title),
-    })?;
-    let quality_label = stream_quality_label(representative_stream);
+    let representative_stream = video.or(audio);
+    if representative_stream.is_none() && options.workflow.is_none() {
+        return Err(BdlError::Planning {
+            message: format!("`{}` 没有可下载的媒体流。", part.title),
+        });
+    }
+    let quality_label = representative_stream
+        .map(stream_quality_label)
+        .unwrap_or_else(|| "none".into());
     let codec_label = video.map(stream_codec_label).unwrap_or("none");
     let context = NamingContext {
         title: &item.title,

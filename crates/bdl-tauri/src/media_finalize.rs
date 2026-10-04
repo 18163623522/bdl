@@ -86,6 +86,29 @@ pub(crate) async fn select_mux_attachments(
 }
 
 pub(crate) fn sidecar_output_path(task: &DownloadTask, resource: &DownloadResource) -> PathBuf {
+    if let Some(workflow) = &task.media_selection.workflow {
+        if let Some(artifact) = task.media_selection.artifacts.iter().find(|artifact| {
+            artifact.resource_id.as_ref() == Some(&resource.id) && !artifact.original
+        }) {
+            return artifact.path.clone();
+        }
+        let format = match resource.intent {
+            DownloadResourceIntent::Subtitle
+                if workflow.subtitles.save || workflow.subtitles.embed =>
+            {
+                workflow.subtitles.format.as_str()
+            }
+            DownloadResourceIntent::Danmaku if workflow.danmaku.save => {
+                workflow.danmaku.format.as_str()
+            }
+            _ => "original",
+        };
+        return if format == "original" {
+            resource.target_path.clone()
+        } else {
+            resource.target_path.with_extension(format)
+        };
+    }
     let processing = task.media_selection.processing.unwrap_or_default();
     let extension = match resource.intent {
         DownloadResourceIntent::Subtitle => {
@@ -107,10 +130,20 @@ pub(crate) async fn prepare_sidecars(task: &DownloadTask) -> BdlResult<()> {
         .resources
         .iter()
         .filter(|resource| resource.status == ResourceStatus::Completed)
+        .filter(|resource| {
+            matches!(
+                resource.intent,
+                DownloadResourceIntent::Subtitle | DownloadResourceIntent::Danmaku
+            )
+        })
     {
         let output = sidecar_output_path(task, resource);
         let source = &resource.target_path;
         if output == *source || (!source.is_file() && output.is_file()) || !source.is_file() {
+            continue;
+        }
+        if source.extension() == output.extension() {
+            fs::copy(source, &output).await?;
             continue;
         }
         let raw = fs::read_to_string(source).await?;
@@ -120,8 +153,20 @@ pub(crate) async fn prepare_sidecars(task: &DownloadTask) -> BdlResult<()> {
             {
                 let converted = match task
                     .media_selection
-                    .processing
-                    .and_then(|options| options.subtitle_format)
+                    .workflow
+                    .as_ref()
+                    .map(|workflow| {
+                        if workflow.subtitles.format == "ass" {
+                            SubtitleFormat::Ass
+                        } else {
+                            SubtitleFormat::Srt
+                        }
+                    })
+                    .or_else(|| {
+                        task.media_selection
+                            .processing
+                            .and_then(|options| options.subtitle_format)
+                    })
                     .unwrap_or_default()
                 {
                     SubtitleFormat::Srt => bilibili_json_to_srt(&raw),

@@ -30,6 +30,36 @@ fn task_storage_creates_expected_tables() -> BdlResult<()> {
 }
 
 #[test]
+fn storage_retains_recipe_snapshot_artifacts_and_android_uris() -> BdlResult<()> {
+    let fixture = StorageFixture::new()?;
+    let mut task = sample_task();
+    let workflow = bdl_core::workflow::legacy_builtin_presets()
+        .remove(2)
+        .workflow;
+    task.media_selection.workflow = Some(workflow.clone());
+    task.media_selection.outputs_verified = true;
+    task.media_selection.artifacts = vec![bdl_core::workflow::DownloadArtifact {
+        path: "downloads/字幕.srt".into(),
+        intent: Some(DownloadResourceIntent::Subtitle),
+        resource_id: Some("subtitle".into()),
+        original: false,
+        document_uri: Some("content://fixture/subtitle".into()),
+    }];
+    {
+        let mut storage = TaskStorage::open(&fixture.db_path)?;
+        storage.save_task(&task)?;
+    }
+    let restored = TaskStorage::open(&fixture.db_path)?.load_tasks()?.remove(0);
+    assert_eq!(restored.media_selection.workflow, Some(workflow));
+    assert!(restored.media_selection.outputs_verified);
+    assert_eq!(
+        restored.media_selection.artifacts,
+        task.media_selection.artifacts
+    );
+    Ok(())
+}
+
+#[test]
 fn task_storage_reloads_task_with_resources_after_reopen() -> BdlResult<()> {
     let fixture = StorageFixture::new()?;
     let task = sample_task();
@@ -378,6 +408,7 @@ fn sample_task() -> DownloadTask {
             audio_quality: "30280".to_owned(),
             video_codec: "avc".to_owned(),
             container: "mp4".to_owned(),
+            ..Default::default()
         },
         scheduled_at: Some(Utc::now() + Duration::minutes(30)),
         speed_limit_bytes_per_second: Some(2 * 1024 * 1024),

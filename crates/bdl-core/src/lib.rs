@@ -16,5 +16,6 @@ pub mod resolver;
 pub mod settings;
 pub mod storage;
 pub mod subtitles;
+pub mod workflow;
 
 pub use error::{BdlError, BdlResult};

@@ -13,6 +13,7 @@ pub mod secure_store;
 pub mod state;
 pub mod task_execution;
 mod task_failure;
+mod workflow_execution;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

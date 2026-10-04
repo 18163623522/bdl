@@ -158,6 +158,13 @@ impl DownloadTask {
             resource.id = format!("{copy_id}{suffix}");
         }
 
+        for artifact in &mut self.media_selection.artifacts {
+            if let Some(resource_id) = &mut artifact.resource_id
+                && let Some(suffix) = resource_id.strip_prefix(&original_id)
+            {
+                *resource_id = format!("{copy_id}{suffix}");
+            }
+        }
         self.id = copy_id;
         self.with_output_path(output_path)
     }
@@ -179,8 +186,25 @@ impl DownloadTask {
             resource.temp_path =
                 retarget_task_path(&resource.temp_path, &self.output_path, &output_path)?;
         }
+        for artifact in &mut self.media_selection.artifacts {
+            artifact.path = retarget_task_path(&artifact.path, &self.output_path, &output_path)?;
+        }
         self.output_path = output_path;
         Ok(self)
+    }
+}
+
+impl DownloadTask {
+    pub fn file_paths(&self) -> Vec<PathBuf> {
+        let mut paths = vec![self.output_path.clone()];
+        paths.extend(
+            self.media_selection
+                .artifacts
+                .iter()
+                .map(|a| a.path.clone()),
+        );
+        paths.extend(self.resources.iter().map(|r| r.target_path.clone()));
+        paths
     }
 }
 
@@ -277,6 +301,12 @@ pub struct TaskProcessingOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DownloadTaskMediaSelection {
+    #[serde(default)]
+    pub outputs_verified: bool,
+    #[serde(default)]
+    pub workflow: Option<crate::workflow::DownloadWorkflow>,
+    #[serde(default)]
+    pub artifacts: Vec<crate::workflow::DownloadArtifact>,
     pub video_quality: String,
     pub audio_quality: String,
     pub video_codec: String,
@@ -289,6 +319,9 @@ impl Default for DownloadTaskMediaSelection {
     fn default() -> Self {
         Self {
             processing: None,
+            workflow: None,
+            artifacts: Vec::new(),
+            outputs_verified: false,
             video_quality: "unknown".to_owned(),
             audio_quality: "unknown".to_owned(),
             video_codec: "unknown".to_owned(),

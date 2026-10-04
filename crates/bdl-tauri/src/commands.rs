@@ -253,6 +253,7 @@ pub struct ParseLoadAllRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SelectionCreateTasksRequest {
+    pub download_preset_id: Option<String>,
     pub source_id: String,
     pub part_ids: Vec<String>,
     pub output_dir: Option<String>,
@@ -281,6 +282,7 @@ pub struct SelectionCreateTasksRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SelectionEstimateSizeRequest {
+    pub download_preset_id: Option<String>,
     pub source_id: String,
     pub part_ids: Vec<String>,
     pub missing_quality_policy: Option<String>,
@@ -641,18 +643,32 @@ pub async fn selection_estimate_size(
 ) -> CommandResult<DownloadSizeEstimate> {
     let settings = state.settings()?;
     let mut options = DownloadOptions::new(PathBuf::from("downloads"));
-    apply_media_options(
-        &mut options,
-        MediaOptionOverrides {
-            media_mode: request.media_mode.as_deref(),
-            quality: request.quality.as_deref(),
-            audio_quality: request.audio_quality.as_deref(),
-            codec: request.codec.as_deref(),
-            missing_quality_policy: request.missing_quality_policy.as_deref(),
-            media_preferences: request.media_preferences.as_ref(),
-        },
-        &settings,
-    )?;
+    if let Some(id) = &request.download_preset_id {
+        let workflow = &settings
+            .download_presets
+            .iter()
+            .find(|preset| &preset.id == id)
+            .ok_or_else(|| BdlError::Planning {
+                message: "下载预设已不存在，请重新选择。".into(),
+            })?
+            .workflow;
+        workflow
+            .with_quality_settings(&settings)
+            .apply(&mut options)?;
+    } else {
+        apply_media_options(
+            &mut options,
+            MediaOptionOverrides {
+                media_mode: request.media_mode.as_deref(),
+                quality: request.quality.as_deref(),
+                audio_quality: request.audio_quality.as_deref(),
+                codec: request.codec.as_deref(),
+                missing_quality_policy: request.missing_quality_policy.as_deref(),
+                media_preferences: request.media_preferences.as_ref(),
+            },
+            &settings,
+        )?;
+    }
     let source_id = SourceId(request.source_id);
     let selected_part_ids = request.part_ids.into_iter().map(PartId).collect::<Vec<_>>();
     let prepared = state
@@ -690,6 +706,37 @@ fn download_options_from_request(
     )?;
 
     let mut options = DownloadOptions::new(output_dir).with_archive_mode(archive_mode);
+    if let Some(id) = &request.download_preset_id {
+        let workflow = &settings
+            .download_presets
+            .iter()
+            .find(|preset| &preset.id == id)
+            .ok_or_else(|| BdlError::Planning {
+                message: "下载预设已不存在，请重新选择。".into(),
+            })?
+            .workflow;
+        #[cfg(target_os = "android")]
+        if (workflow.cover.enabled && workflow.cover.embed)
+            || (workflow.subtitles.enabled && workflow.subtitles.embed)
+        {
+            return Err(BdlError::Planning {
+                message: "Android 暂不支持嵌入，请在设置中使用独立保存的预设。".into(),
+            }
+            .into());
+        }
+        workflow
+            .with_quality_settings(settings)
+            .apply(&mut options)?;
+        options.naming_template = request
+            .naming_template
+            .clone()
+            .unwrap_or_else(|| settings.naming_template.clone());
+        options.duplicate_naming_strategy = request
+            .duplicate_naming_strategy
+            .unwrap_or(settings.duplicate_naming_strategy);
+        bdl_core::naming::validate_template(&options.naming_template)?;
+        return Ok(options);
+    }
     let media_mode = request
         .media_mode
         .as_deref()
@@ -1731,7 +1778,13 @@ pub(crate) async fn run_download_task(
     cancel_token: FetchCancelToken,
 ) -> CommandResult<()> {
     if has_recoverable_completed_output(&task).await? {
-        finalize_archive_assets(app, state, &task).await?;
+        if task.media_selection.workflow.is_none() {
+            finalize_archive_assets(app, state, &task).await?;
+        } else {
+            for warning in crate::workflow_execution::cleanup(&task).await {
+                emit_queue_log(app, state, &task.id, QueueLogLevel::Warning, &warning)?;
+            }
+        }
         export_task_files(app, state, &task.id).await?;
         let completed = state.update_task_status(&task.id, TaskStatus::Completed)?;
         events::emit(app, events::QUEUE_TASK_UPDATED, &completed)?;
@@ -1859,6 +1912,36 @@ async fn run_download_task_inner(
     )?;
 
     let latest = state.task_snapshot(&task.id)?;
+    if latest.media_selection.workflow.is_some() {
+        let warnings = crate::workflow_execution::execute(
+            &latest,
+            &media_mux,
+            runtime_options.ffmpeg_path.clone(),
+        )
+        .await?;
+        for warning in warnings {
+            emit_queue_log(app, state, &latest.id, QueueLogLevel::Warning, &warning)?;
+        }
+        for resource in latest
+            .resources
+            .iter()
+            .filter(|resource| resource.intent == DownloadResourceIntent::Nfo)
+        {
+            state.update_resource_status(&latest.id, &resource.id, ResourceStatus::Completed)?;
+        }
+        let verified = state.verify_task_outputs(&latest.id)?;
+        for warning in crate::workflow_execution::cleanup(&verified).await {
+            emit_queue_log(app, state, &latest.id, QueueLogLevel::Warning, &warning)?;
+        }
+        export_task_files(app, state, &task.id).await?;
+        let completed = state.update_task_status(&task.id, TaskStatus::Completed)?;
+        events::emit(app, events::QUEUE_TASK_UPDATED, &completed)?;
+        emit_queue_log(app, state, &task.id, QueueLogLevel::Info, "下载完成")?;
+        if let Err(error) = state.record_completed_task(&completed) {
+            tracing::warn!("failed to save completed task record: {error}");
+        }
+        return Ok(());
+    }
     crate::media_finalize::prepare_sidecars(&latest).await?;
     let attachments = select_mux_attachments(
         &latest,
@@ -1920,7 +2003,15 @@ async fn run_download_task_inner(
     Ok(())
 }
 
-async fn has_recoverable_completed_output(task: &DownloadTask) -> CommandResult<bool> {
+pub(crate) async fn has_recoverable_completed_output(task: &DownloadTask) -> CommandResult<bool> {
+    if task.media_selection.workflow.is_some() {
+        return Ok(task.media_selection.outputs_verified
+            && task
+                .resources
+                .iter()
+                .all(|r| r.status == ResourceStatus::Completed)
+            && crate::workflow_execution::outputs_complete(task).await);
+    }
     let media_resources = task.resources.iter().filter(|resource| {
         matches!(
             resource.intent,
@@ -1957,6 +2048,37 @@ async fn export_task_files(
     let Some(target) = task.export_target.clone() else {
         return Ok(task);
     };
+    if task.media_selection.workflow.is_some() {
+        emit_queue_log(
+            app,
+            state,
+            task_id,
+            QueueLogLevel::Info,
+            "导出到 Android 保存目录",
+        )?;
+        crate::workflow_execution::export_manifest(task, state.mobile_storage(), |snapshot| {
+            let updated = state.update_task_file_exports(
+                task_id,
+                snapshot.export_target.clone(),
+                snapshot.media_selection.artifacts.clone(),
+            )?;
+            events::emit(app, events::QUEUE_TASK_UPDATED, &updated).map_err(|error| {
+                BdlError::Platform {
+                    message: error.message,
+                }
+            })?;
+            Ok(())
+        })
+        .await?;
+        emit_queue_log(
+            app,
+            state,
+            task_id,
+            QueueLogLevel::Info,
+            "Android 文件导出完成",
+        )?;
+        return state.task_snapshot(task_id).map_err(Into::into);
+    }
     let DownloadExportTarget::DocumentTree {
         tree_uri,
         duplicate_naming_strategy,
@@ -2206,6 +2328,9 @@ fn missing_asset_log_level() -> QueueLogLevel {
 }
 
 fn task_mux_label(task: &DownloadTask) -> &'static str {
+    if task.media_selection.workflow.is_some() {
+        return "处理预设输出";
+    }
     match (
         task_has_resource_intent(task, DownloadResourceIntent::Video),
         task_has_resource_intent(task, DownloadResourceIntent::Audio),
@@ -2368,6 +2493,55 @@ mod tests {
         DownloadTaskMediaSelection, QueueLogEntry, QueueLogLevel, ResourceStatus, TaskStatus,
     };
     use chrono::{TimeZone, Utc};
+
+    #[test]
+    fn saved_preset_is_authoritative_and_options_own_an_immutable_snapshot() {
+        let mut settings = super::SettingsSnapshot::default().normalized();
+        settings
+            .download_presets
+            .push(bdl_core::workflow::legacy_builtin_presets().remove(2));
+        settings.quality = "80".into();
+        settings.media_preferences.video = vec![bdl_core::media_preferences::VideoPreference {
+            quality: "sdr".into(),
+            codec: "auto".into(),
+        }];
+        let request: super::SelectionCreateTasksRequest =
+            serde_json::from_value(serde_json::json!({
+                "source_id": "test", "part_ids": [], "download_preset_id": "subtitles",
+                "media_mode": "audio_video", "quality": "120", "embed_cover": true,
+                "output_extension": "mkv", "naming_template": "{title}.{ext}",
+                "duplicate_naming_strategy": "append_suffix"
+            }))
+            .unwrap();
+        let options = super::download_options_from_request(&request, &settings, None).unwrap();
+        assert_eq!(
+            options.media_mode,
+            bdl_core::planner::DownloadMediaMode::AssetsOnly
+        );
+        assert_eq!(options.output_extension, "srt");
+        assert_eq!(options.naming_template, "{title}.{ext}");
+        assert!(!options.processing.unwrap().embed_cover);
+        assert_eq!(options.workflow.as_ref().unwrap().quality, "80");
+        assert_eq!(options.media_preferences, settings.media_preferences);
+        let stored = serde_json::to_string(&options.workflow).unwrap();
+        settings
+            .download_presets
+            .iter_mut()
+            .find(|p| p.id == "subtitles")
+            .unwrap()
+            .workflow
+            .subtitles
+            .format = "ass".into();
+        assert_eq!(options.workflow.as_ref().unwrap().subtitles.format, "srt");
+        assert_eq!(
+            serde_json::from_str::<Option<bdl_core::workflow::DownloadWorkflow>>(&stored).unwrap(),
+            options.workflow
+        );
+        let changed = super::download_options_from_request(&request, &settings, None).unwrap();
+        assert_eq!(changed.output_extension, "ass");
+        settings.download_presets.retain(|p| p.id != "subtitles");
+        assert!(super::download_options_from_request(&request, &settings, None).is_err());
+    }
 
     #[test]
     fn task_processing_overrides_runtime_defaults_and_survives_serialization() {

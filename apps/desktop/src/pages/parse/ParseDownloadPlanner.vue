@@ -2,22 +2,19 @@
 import { open } from '@tauri-apps/plugin-dialog'
 import { computed, ref, watch } from 'vue'
 
-import type { SettingsSnapshot, NamingPreset, DownloadMediaMode, DuplicateTaskMatch, DuplicateTaskPolicy, VideoCodecPreference, DocumentTreeDirectory } from '../../api/dto'
+import type { SettingsSnapshot, NamingPreset, DuplicateTaskMatch, DuplicateTaskPolicy, DocumentTreeDirectory } from '../../api/dto'
 import { mobilePickExportDirectory } from '../../api/tauri'
 import { useParseStore } from '../../stores/parse'
-import { validateNamingTemplate, cloneMediaPreferences, selectedArchiveAssets, useSettingsStore } from '../../stores/settings'
+import { validateNamingTemplate, useSettingsStore } from '../../stores/settings'
 import type { InlineNotice } from '../../stores/feedback'
 import { statusBadge, statusLabel } from '../../stores/transferView'
-import { duplicateNamingOptions, missingQualityOptions, videoQualityOptions, audioQualityOptions, codecOptions } from '../settings/settingsCatalog'
+import { duplicateNamingOptions } from '../settings/settingsCatalog'
 import NamingTemplatePicker from '../../ui/NamingTemplatePicker.vue'
-import MediaPreferenceEditor from '../settings/MediaPreferenceEditor.vue'
-import MediaOutputOptions from '../../ui/MediaOutputOptions.vue'
 import UiTabs from '../../ui/Tabs.vue'
 import { isAndroidPlatform, isMobilePlatform } from '../../utils/platform'
 import UiCheckbox from '../../ui/Checkbox.vue'
 import UiButton from '../../ui/Button.vue'
 import UiDialog from '../../ui/Dialog.vue'
-import UiDisclosure from '../../ui/Disclosure.vue'
 import UiIconButton from '../../ui/IconButton.vue'
 import UiInlineNotice from '../../ui/InlineNotice.vue'
 import UiSelect from '../../ui/Select.vue'
@@ -25,6 +22,7 @@ import UiStatusBadge from '../../ui/StatusBadge.vue'
 import UiTextField from '../../ui/TextField.vue'
 import { scheduledLocalError, toDateTimeLocalValue, toScheduledIso } from '../../utils/schedule'
 import { speedLimitMbError, toBytesPerSecond } from '../../utils/speedLimit'
+import { workflowError, workflowExtension, workflowOutputs } from '../../utils/downloadWorkflow'
 
 const parse = useParseStore()
 const settings = useSettingsStore()
@@ -36,29 +34,18 @@ const downloadNotice = ref<InlineNotice | null>(null)
 const downloadDir = ref('')
 const documentTreeOutput = ref<DocumentTreeDirectory | null>(null)
 const rememberDocumentTreeOutput = ref(false)
-const outputExtension = ref<'mp4' | 'mkv'>('mp4')
-const mediaMode = ref<DownloadMediaMode>('audio_video')
-const audioOutputFormat = ref<SettingsSnapshot['audio_output_format']>('m4s')
-const subtitleFormat = ref<SettingsSnapshot['subtitle_format']>('srt')
-const danmakuFormat = ref<SettingsSnapshot['danmaku_format']>('xml')
-const effectiveOutputExtension = computed(() => mediaMode.value === 'audio_only' ? audioOutputFormat.value : outputExtension.value)
-const videoQuality = ref('best')
-const mediaPreferences = ref(cloneMediaPreferences())
-const audioQuality = ref('best')
-const videoCodec = ref<VideoCodecPreference>('auto')
+const downloadPresetId = ref('')
+const selectedPreset = computed(() => settings.saved.download_presets.find((preset) => preset.id === downloadPresetId.value))
+const effectiveOutputExtension = computed(() => selectedPreset.value ? workflowExtension(selectedPreset.value.workflow) : 'mp4')
+const outputPreview = computed(() => selectedPreset.value ? workflowOutputs(selectedPreset.value.workflow) : [])
 const scheduledLocal = ref('')
 const taskSpeedLimitMb = ref('')
 const activeTab = ref('general')
 const defaultsRevision = ref(0)
-const tabs = [{ label: '常规', value: 'general' }, { label: '媒体', value: 'media' }, { label: '调度', value: 'schedule' }]
+const tabs = [{ label: '下载', value: 'general' }, { label: '调度', value: 'schedule' }]
 const namingTemplate = ref('')
 const namingPresets = ref<NamingPreset[]>([])
 const duplicateNamingStrategy = ref<SettingsSnapshot['duplicate_naming_strategy']>('skip_existing')
-const missingQualityPolicy = ref<SettingsSnapshot['missing_quality_policy']>('lower')
-const retainRawStreams = ref(false)
-const embedCover = ref(false)
-const embedSubtitles = ref(false)
-const archiveAssets = ref(selectedArchiveAssets(settings.saved))
 const namingError = computed(() => validateNamingTemplate(namingTemplate.value))
 const scheduleMin = ref('')
 const scheduleValidationNow = ref(Date.now())
@@ -75,18 +62,17 @@ const selectedCount = computed(() => parse.isBatch ? parse.selectedBatchEntryIds
 const selectionUnit = computed(() => parse.isBatch ? '个视频' : '个分集')
 const selectionTitle = computed(() => parse.isBatch ? '批量链接' : activeSource.value?.source.title ?? '')
 const activeLoading = computed(() => selectedSourceIds.value.some((sourceId) => parse.loadingBySource[sourceId]))
-const includesVideo = computed(() => mediaMode.value !== 'audio_only')
-watch([mediaMode, audioOutputFormat], ([mode, format]) => {
-  if (!downloadDialogOpen.value || (mode === settings.saved.media_mode && format === settings.saved.audio_output_format)) return
-  void settings.saveAppPreferences({ media_mode: mode, audio_output_format: format })
+watch(downloadPresetId, (id) => {
+  if (downloadDialogOpen.value && id && id !== settings.saved.selected_download_preset) void settings.saveAppPreferences({ selected_download_preset: id })
 })
 const scheduleError = computed(() => scheduledLocalError(scheduledLocal.value, scheduleValidationNow.value))
 const taskSpeedLimitError = computed(() => speedLimitMbError(taskSpeedLimitMb.value))
-const embeddingFormatError = computed(() =>
-  includesVideo.value && outputExtension.value !== 'mkv' && (embedCover.value || embedSubtitles.value)
-    ? '嵌入封面和字幕仅支持 MKV，请改用 MKV 或关闭本次嵌入。'
-    : null,
-)
+const presetError = computed(() => {
+  const flow = selectedPreset.value?.workflow
+  if (!flow) return '请选择已保存的下载预设'
+  if (androidPlatform && ((flow.cover.enabled && flow.cover.embed) || (flow.subtitles.enabled && flow.subtitles.embed))) return 'Android 暂不支持此预设中的嵌入，请到设置中改为保存独立文件'
+  return workflowError(flow)
+})
 const duplicatePreview = computed(() => duplicateMatches.value.slice(0, 6))
 const duplicateRemaining = computed(() => Math.max(duplicateMatches.value.length - duplicatePreview.value.length, 0))
 const formatEstimatedBytes = (bytes: number) => {
@@ -115,16 +101,7 @@ const refreshSizeEstimate = async () => {
   sizeEstimateLoading.value = true
   try {
     const estimate = await parse.estimateDownloadSizeForSources(selectedSourceIds.value, {
-      mediaMode: mediaMode.value,
-      quality: videoQuality.value,
-      audioQuality: audioQuality.value,
-      codec: videoCodec.value,
-      mediaPreferences: {
-        ...mediaPreferences.value,
-        video: mediaPreferences.value.video.map((rule) => ({ ...rule })),
-        audio: [...mediaPreferences.value.audio],
-      },
-      missingQualityPolicy: missingQualityPolicy.value,
+      downloadPresetId: downloadPresetId.value,
     })
     if (revision === sizeEstimateRevision) sizeEstimate.value = estimate
   } catch {
@@ -134,7 +111,7 @@ const refreshSizeEstimate = async () => {
   }
 }
 watch(
-  [downloadDialogOpen, mediaMode, videoQuality, audioQuality, videoCodec, mediaPreferences, missingQualityPolicy],
+  [downloadDialogOpen, downloadPresetId],
   () => {
     if (downloadDialogOpen.value) void refreshSizeEstimate()
   },
@@ -146,23 +123,10 @@ const restoreDefaults = () => {
   downloadDir.value = defaults.download_dir ?? ''
   documentTreeOutput.value = defaults.document_tree_output ? { ...defaults.document_tree_output } : null
   rememberDocumentTreeOutput.value = false
-  outputExtension.value = defaults.output_extension
-  mediaMode.value = defaults.media_mode
-  audioOutputFormat.value = defaults.audio_output_format
-  subtitleFormat.value = defaults.subtitle_format
-  danmakuFormat.value = defaults.danmaku_format
-  mediaPreferences.value = cloneMediaPreferences(defaults.media_preferences)
-  videoQuality.value = mediaPreferences.value.video.length ? 'best' : defaults.quality
-  audioQuality.value = mediaPreferences.value.audio.length ? 'best' : defaults.audio_quality
-  videoCodec.value = mediaPreferences.value.video.length ? 'auto' : defaults.codec
+  downloadPresetId.value = defaults.selected_download_preset || defaults.download_presets[0]?.id || ''
   namingTemplate.value = defaults.naming_template
   namingPresets.value = defaults.naming_presets.map((preset) => ({ ...preset }))
   duplicateNamingStrategy.value = defaults.duplicate_naming_strategy
-  missingQualityPolicy.value = defaults.missing_quality_policy
-  archiveAssets.value = selectedArchiveAssets(defaults)
-  retainRawStreams.value = defaults.retain_raw_streams
-  embedCover.value = androidPlatform ? false : defaults.embed_cover
-  embedSubtitles.value = androidPlatform ? false : defaults.embed_subtitles
   scheduledLocal.value = ''
   taskSpeedLimitMb.value = ''
 }
@@ -197,9 +161,9 @@ const createTasks = async (duplicatePolicy: DuplicateTaskPolicy = 'ask') => {
   const sourceIds = duplicatePolicy === 'ask' ? selectedSourceIds.value : duplicatePendingSourceIds.value
   if (sourceIds.length === 0) return
   scheduleValidationNow.value = Date.now()
-  if (namingError.value || scheduleError.value || taskSpeedLimitError.value || embeddingFormatError.value) {
+  if (namingError.value || scheduleError.value || taskSpeedLimitError.value || presetError.value) {
     downloadNotice.value = {
-      message: namingError.value ?? scheduleError.value ?? taskSpeedLimitError.value ?? embeddingFormatError.value ?? '请检查下载设置',
+      message: namingError.value ?? scheduleError.value ?? taskSpeedLimitError.value ?? presetError.value ?? '请检查下载设置',
       tone: 'warning',
     }
     return
@@ -219,44 +183,13 @@ const createTasks = async (duplicatePolicy: DuplicateTaskPolicy = 'ask') => {
   const result = await parse.createTasksForSources(sourceIds, {
     downloadDir: isMobilePlatform() ? null : downloadDir.value.trim() || 'downloads',
     documentTreeOutput: isMobilePlatform() ? documentTreeOutput.value : null,
-    archiveMode: 'custom',
-    outputExtension: effectiveOutputExtension.value,
-    subtitleFormat: subtitleFormat.value,
-    danmakuFormat: danmakuFormat.value,
+    downloadPresetId: downloadPresetId.value,
     namingTemplate: namingTemplate.value,
     duplicateNamingStrategy: duplicateNamingStrategy.value,
-    archiveAssets: { ...archiveAssets.value },
-    retainRawStreams: retainRawStreams.value,
-    embedCover: includesVideo.value && embedCover.value,
-    embedSubtitles: includesVideo.value && embedSubtitles.value,
-    missingQualityPolicy: missingQualityPolicy.value,
-    mediaMode: mediaMode.value,
-    quality: videoQuality.value,
-    audioQuality: audioQuality.value,
-    codec: videoCodec.value,
-    mediaPreferences: {
-      ...mediaPreferences.value,
-      video: videoQuality.value === 'best' && videoCodec.value === 'auto' ? mediaPreferences.value.video : [],
-      audio: audioQuality.value === 'best' ? mediaPreferences.value.audio : [],
-    },
     duplicatePolicy,
     scheduledAt: scheduledLocal.value ? toScheduledIso(scheduledLocal.value) : undefined,
     speedLimitBytesPerSecond: toBytesPerSecond(taskSpeedLimitMb.value),
   })
-  if (result && (result.created.length > 0 || (!result.requires_confirmation && result.failures.length === 0))) {
-    await settings.saveAppPreferences({
-      media_mode: mediaMode.value,
-      audio_output_format: audioOutputFormat.value,
-      subtitle_format: subtitleFormat.value,
-      danmaku_format: danmakuFormat.value,
-      archive_mode: 'custom',
-      archive_assets: { ...archiveAssets.value },
-      output_extension: outputExtension.value,
-      embed_cover: embedCover.value,
-      embed_subtitles: embedSubtitles.value,
-      retain_raw_streams: retainRawStreams.value,
-    })
-  }
   if (result?.failures.length) {
     const firstFailure = result.failures[0]
     downloadNotice.value = {
@@ -326,6 +259,11 @@ const chooseDocumentTreeOutput = async () => {
       <UiInlineNotice v-if="downloadNotice" :tone="downloadNotice.tone">{{ downloadNotice.message }}</UiInlineNotice>
       <div class="grid content-start gap-4">
         <div v-show="activeTab === 'general'" class="grid gap-4">
+          <UiSelect v-model="downloadPresetId" label="下载预设" :options="settings.saved.download_presets.map((preset) => ({ label: preset.name, value: preset.id }))" :disabled="activeLoading" helper="在设置 → 下载预设中新增或修改，自动记住上次选择" />
+          <div class="grid gap-2 rounded-lg border border-(--color-border) p-3" aria-label="本次输出预览">
+            <strong class="text-sm">将生成</strong>
+            <ul class="m-0 grid list-none gap-1 p-0 text-sm"><li v-for="item in outputPreview" :key="item">{{ item }}</li></ul>
+          </div>
           <div v-if="isMobilePlatform()" class="directory-row">
             <UiTextField :model-value="documentTreeOutput?.display_name ?? ''" label="导出目录" placeholder="请选择目录" disabled />
             <UiIconButton
@@ -348,36 +286,12 @@ const chooseDocumentTreeOutput = async () => {
           <NamingTemplatePicker :key="defaultsRevision" v-model="namingTemplate" :presets="namingPresets" :extension="effectiveOutputExtension" />
           <UiSelect v-model="duplicateNamingStrategy" label="重名处理" :options="duplicateNamingOptions" helper="目标文件已存在时使用此策略；传输记录中的重复任务会另外提示。" />
         </div>
-        <div v-show="activeTab === 'media'" class="grid gap-4">
-          <MediaOutputOptions
-            v-model:mode="mediaMode"
-            v-model:audio-format="audioOutputFormat"
-            v-model:subtitle-format="subtitleFormat"
-            v-model:danmaku-format="danmakuFormat"
-            v-model:assets="archiveAssets"
-            v-model:format="outputExtension"
-            v-model:embed-cover="embedCover"
-            v-model:embed-subtitles="embedSubtitles"
-            v-model:retain-raw-streams="retainRawStreams"
-            :embedding-supported="!androidPlatform"
-          >
-            <template #video>
-              <UiSelect v-model="videoQuality" label="视频清晰度" :options="videoQualityOptions" :helper="mediaPreferences.video.length && videoQuality === 'best' && videoCodec === 'auto' ? '按本次优先顺序选择' : undefined" />
-              <UiSelect v-model="videoCodec" label="视频编码偏好" :options="codecOptions" />
-            </template>
-            <template #audio><UiSelect v-model="audioQuality" label="音频质量" :options="audioQualityOptions" /></template>
-          </MediaOutputOptions>
-          <UiSelect v-model="missingQualityPolicy" label="指定质量不可用时" :options="missingQualityOptions" />
-          <UiDisclosure title="本次优先顺序" description="最优画质 + 自动编码时使用视频排序；最佳可用音频时使用音频排序。" variant="panel">
-            <MediaPreferenceEditor v-model="mediaPreferences" />
-          </UiDisclosure>
-        </div>
         <div v-show="activeTab === 'schedule'" class="grid grid-cols-2 gap-3 max-[600px]:grid-cols-1">
           <UiTextField v-model="scheduledLocal" type="datetime-local" label="开始时间（可选）" :min="scheduleMin" :error="scheduleError" helper="留空时立即加入下载队列" />
           <UiTextField v-model="taskSpeedLimitMb" label="单任务限速（MB/s）" placeholder="留空时不单独限速" :error="taskSpeedLimitError ?? undefined" helper="留空时仅受全局限速影响" />
         </div>
       </div>
-      <UiInlineNotice v-if="embeddingFormatError || namingError || scheduleError || taskSpeedLimitError" tone="danger">{{ embeddingFormatError ?? namingError ?? scheduleError ?? taskSpeedLimitError }}</UiInlineNotice>
+      <UiInlineNotice v-if="presetError || namingError || scheduleError || taskSpeedLimitError" tone="danger">{{ presetError ?? namingError ?? scheduleError ?? taskSpeedLimitError }}</UiInlineNotice>
     </div>
     <template #footer>
       <div class="planner-dialog-footer">
@@ -387,10 +301,10 @@ const chooseDocumentTreeOutput = async () => {
         <UiButton class="planner-restore" size="compact" variant="ghost" :disabled="activeLoading" @click="restoreDefaults"
           ><span class="restore-wide">恢复默认偏好</span><span class="restore-short">恢复</span></UiButton
         >
-        <span class="planner-estimate" title="按所选媒体轨道的码率与时长估算，不含封面、字幕等附加文件。">{{ sizeEstimateLabel }}</span>
+        <span class="planner-estimate" title="按媒体轨道码率与时长估算，附加文件大小可能未知。">{{ sizeEstimateLabel }}</span>
         <UiButton
           size="compact"
-          :disabled="activeLoading || selectedSourceIds.length === 0 || Boolean(namingError || scheduleError || taskSpeedLimitError || embeddingFormatError)"
+          :disabled="activeLoading || selectedSourceIds.length === 0 || Boolean(namingError || scheduleError || taskSpeedLimitError || presetError)"
           @click="createTasks()"
           >开始下载</UiButton
         >

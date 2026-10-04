@@ -68,6 +68,8 @@ pub struct AppSettings {
     pub parse_rules: ParseRules,
     pub naming_template: String,
     pub naming_presets: Vec<NamingPreset>,
+    pub download_presets: Vec<crate::workflow::DownloadPreset>,
+    pub selected_download_preset: String,
     pub quality: String,
     pub archive_mode: String,
     pub archive_assets: ArchiveAssetSelection,
@@ -108,6 +110,8 @@ impl Default for AppSettings {
             parse_rules: ParseRules::default(),
             naming_template: DEFAULT_NAMING_TEMPLATE.to_owned(),
             naming_presets: Vec::new(),
+            download_presets: Vec::new(),
+            selected_download_preset: String::new(),
             quality: "best".to_owned(),
             archive_mode: "fast".to_owned(),
             archive_assets: ArchiveAssetSelection::all(),
@@ -183,6 +187,33 @@ impl AppSettings {
             .global_speed_limit_bytes_per_second
             .filter(|limit| *limit > 0);
 
+        if self.download_presets.is_empty() {
+            self.download_presets = crate::workflow::builtin_presets();
+            let legacy = crate::workflow::DownloadWorkflow::from_legacy(&self);
+            let matching = self
+                .download_presets
+                .iter()
+                .find(|preset| preset.workflow.with_quality_settings(&self) == legacy);
+            self.selected_download_preset = if let Some(preset) = matching {
+                preset.id.clone()
+            } else {
+                self.download_presets.push(crate::workflow::DownloadPreset {
+                    id: "migrated".into(),
+                    name: "历史配置".into(),
+                    workflow: legacy,
+                });
+                "migrated".into()
+            };
+        } else if self.selected_download_preset.is_empty() {
+            self.selected_download_preset = self.download_presets[0].id.clone();
+        }
+
+        for preset in &mut self.download_presets {
+            if preset.id == "migrated" && preset.name == "原下载配置" {
+                preset.name = "历史配置".into();
+            }
+        }
+
         self
     }
 
@@ -190,6 +221,12 @@ impl AppSettings {
         self.parse_rules.validate()?;
         validate_template(&self.naming_template)?;
         validate_naming_presets(&self.naming_presets)?;
+        if !self.download_presets.is_empty() {
+            crate::workflow::validate_presets(
+                &self.download_presets,
+                &self.selected_download_preset,
+            )?;
+        }
         validate_archive_mode(&self.archive_mode)?;
         validate_output_extension(&self.output_extension)?;
         if !matches!(self.audio_output_format.as_str(), "m4s" | "mp3") {

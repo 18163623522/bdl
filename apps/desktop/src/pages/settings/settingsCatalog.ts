@@ -3,7 +3,7 @@ import type { SettingsSection } from './settingsSections';
 
 export const settingsSections = [
   { id: 'settings-download', label: '下载', description: '目录、速度与任务恢复', icon: 'i-tabler-download' },
-  { id: 'settings-media', label: '媒体', description: '画质、编码与成品文件', icon: 'i-tabler-movie' },
+  { id: 'settings-media', label: '下载预设', description: '内容、转换与输出流程', icon: 'i-tabler-adjustments' },
   { id: 'settings-naming', label: '文件命名', description: '模板与重名处理', icon: 'i-tabler-file-text' },
   { id: 'settings-update', label: '应用更新', description: '版本检测与安装', icon: 'i-tabler-refresh' },
   { id: 'settings-maintenance', label: '网络与维护', description: '代理、日志与数据', icon: 'i-tabler-tool' },

@@ -1041,12 +1041,46 @@ impl AppState {
         Ok(updated)
     }
 
+    pub fn update_task_file_exports(
+        &self,
+        task_id: &str,
+        export_target: Option<bdl_core::queue::DownloadExportTarget>,
+        artifacts: Vec<bdl_core::workflow::DownloadArtifact>,
+    ) -> BdlResult<DownloadTask> {
+        let mut queue = self.queue.lock().map_err(|_| state_poisoned("queue"))?;
+        let task = queue
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .ok_or_else(|| BdlError::Planning {
+                message: format!("未找到任务 {task_id}。"),
+            })?;
+        task.export_target = export_target;
+        task.media_selection.artifacts = artifacts;
+        let updated = task.clone();
+        self.persist_queue(&queue)?;
+        Ok(updated)
+    }
+
     pub fn startup_recovery(&self) -> BdlResult<StartupRecoverySnapshot> {
         Ok(self
             .startup_recovery
             .lock()
             .map_err(|_| state_poisoned("startup_recovery"))?
             .clone())
+    }
+
+    pub fn verify_task_outputs(&self, task_id: &str) -> BdlResult<DownloadTask> {
+        let mut queue = self.queue.lock().map_err(|_| state_poisoned("queue"))?;
+        let task = queue
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .ok_or_else(|| BdlError::Planning {
+                message: format!("未找到任务 {task_id}。"),
+            })?;
+        task.media_selection.outputs_verified = true;
+        let updated = task.clone();
+        self.persist_queue(&queue)?;
+        Ok(updated)
     }
 
     pub fn clear_startup_recovery(&self) -> BdlResult<StartupRecoverySnapshot> {

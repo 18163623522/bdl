@@ -49,6 +49,191 @@ fn plan_selected_parts_creates_one_task_for_one_selected_part() {
 }
 
 #[test]
+fn workflow_duplicate_policy_checks_sidecars_and_reserves_raw_inputs_across_containers() {
+    let tree = fixture_tree(true);
+    let dir = unique_temp_dir();
+    let mut options = DownloadOptions::new(dir.clone());
+    let archive = bdl_core::workflow::legacy_builtin_presets()
+        .remove(5)
+        .workflow;
+    archive.apply(&mut options).unwrap();
+    let selected = [PartId("part:BV1:100".into())];
+    let first = plan_selected_parts(&tree, &selected, &options)
+        .unwrap()
+        .remove(0);
+    let sidecar = first
+        .media_selection
+        .artifacts
+        .iter()
+        .find(|a| a.intent == Some(DownloadResourceIntent::Subtitle))
+        .unwrap()
+        .path
+        .clone();
+    fs::create_dir_all(sidecar.parent().unwrap()).unwrap();
+    fs::write(&sidecar, b"existing independent subtitle").unwrap();
+    assert!(!first.output_path.exists());
+    assert!(
+        plan_selected_parts(&tree, &selected, &options)
+            .unwrap()
+            .is_empty()
+    );
+    options.duplicate_naming_strategy = DuplicateNamingStrategy::AppendSuffix;
+    let suffixed = plan_selected_parts(&tree, &selected, &options)
+        .unwrap()
+        .remove(0);
+    assert!(
+        suffixed.file_paths().iter().all(|p| p
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains(" (1)"))
+    );
+    assert_eq!(
+        fs::read(&sidecar).unwrap(),
+        b"existing independent subtitle"
+    );
+    options.duplicate_naming_strategy = DuplicateNamingStrategy::OverwriteExisting;
+    let overwrite = plan_selected_parts(&tree, &selected, &options)
+        .unwrap()
+        .remove(0);
+    assert_eq!(overwrite.output_path, first.output_path);
+    let mut reserved = first.file_paths().into_iter().collect();
+    bdl_core::workflow::DownloadWorkflow::default()
+        .apply(&mut options)
+        .unwrap();
+    let mp4 = plan_selected_parts(&tree, &selected, &options)
+        .unwrap()
+        .remove(0);
+    assert_ne!(mp4.output_path, first.output_path);
+    let safely_reserved = bdl_core::workflow::reserve_task_paths(
+        mp4,
+        &mut reserved,
+        DuplicateNamingStrategy::OverwriteExisting,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(
+        safely_reserved
+            .file_paths()
+            .iter()
+            .all(|p| !first.file_paths().contains(p))
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn subtitle_recipe_downloads_no_media_and_plans_real_srt_output() {
+    let mut tree = fixture_tree(true);
+    tree.groups[0].items[0].parts[0].streams.clear();
+    let preset = bdl_core::workflow::legacy_builtin_presets()
+        .into_iter()
+        .find(|p| p.id == "subtitles")
+        .unwrap();
+    let mut options = DownloadOptions::new("downloads".into());
+    preset.workflow.apply(&mut options).unwrap();
+    let task = plan_selected_parts(&tree, &[PartId("part:BV1:100".into())], &options)
+        .unwrap()
+        .remove(0);
+    assert_eq!(task.resources.len(), 1);
+    assert_eq!(task.resources[0].intent, DownloadResourceIntent::Subtitle);
+    assert_eq!(task.resources[0].target_path.extension().unwrap(), "json");
+    assert_eq!(task.output_path.extension().unwrap(), "srt");
+    assert_eq!(task.media_selection.artifacts[0].path, task.output_path);
+    assert_eq!(task.media_selection.workflow, Some(preset.workflow));
+    let estimate =
+        estimate_selected_parts_download_size(&tree, &[PartId("part:BV1:100".into())], &options)
+            .unwrap();
+    assert_eq!(estimate.estimated_bytes, 0);
+    assert_eq!(estimate.unknown_streams, 1);
+}
+
+#[test]
+fn subtitle_recipe_reports_missing_subtitles_instead_of_empty_success() {
+    let mut tree = fixture_tree(true);
+    tree.groups[0].items[0].parts[0].assets.clear();
+    let preset = bdl_core::workflow::legacy_builtin_presets()
+        .into_iter()
+        .find(|p| p.id == "subtitles")
+        .unwrap();
+    let mut options = DownloadOptions::new("downloads".into());
+    preset.workflow.apply(&mut options).unwrap();
+    let error = plan_selected_parts(&tree, &[PartId("part:BV1:100".into())], &options).unwrap_err();
+    assert!(error.to_string().contains("没有可下载的字幕"));
+}
+
+#[test]
+fn workflow_task_identity_follows_config_and_copy_retargets_all_outputs() {
+    let tree = fixture_tree(true);
+    let mut options = DownloadOptions::new("downloads".into());
+    let mut presets = bdl_core::workflow::legacy_builtin_presets();
+    presets[0].workflow.apply(&mut options).unwrap();
+    let video = plan_selected_parts(&tree, &[PartId("part:BV1:100".into())], &options)
+        .unwrap()
+        .remove(0);
+    presets[2].workflow.apply(&mut options).unwrap();
+    let subtitles = plan_selected_parts(&tree, &[PartId("part:BV1:100".into())], &options)
+        .unwrap()
+        .remove(0);
+    assert_ne!(video.logical_id(), subtitles.logical_id());
+    presets[2].name = "学习字幕".into();
+    presets[2].workflow.apply(&mut options).unwrap();
+    let renamed = plan_selected_parts(&tree, &[PartId("part:BV1:100".into())], &options)
+        .unwrap()
+        .remove(0);
+    assert_eq!(renamed.id, subtitles.id);
+    let output = subtitles.output_path.with_file_name("another.srt");
+    let copied = subtitles.into_duplicate_copy(1, output.clone()).unwrap();
+    assert_eq!(copied.media_selection.artifacts[0].path, output);
+    assert_eq!(
+        copied.media_selection.artifacts[0].resource_id.as_deref(),
+        Some(copied.resources[0].id.as_str())
+    );
+    assert!(
+        copied.resources[0]
+            .target_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("another.")
+    );
+}
+
+#[test]
+fn independent_media_recipe_has_mp3_and_raw_output_manifest() {
+    let tree = fixture_tree(true);
+    let mut workflow = bdl_core::workflow::DownloadWorkflow {
+        merge_media: false,
+        ..Default::default()
+    };
+    workflow.video.save = true;
+    workflow.audio.save = true;
+    workflow.audio.format = "mp3".into();
+    workflow.audio.retain_original = true;
+    let mut options = DownloadOptions::new("downloads".into());
+    workflow.apply(&mut options).unwrap();
+    let task = plan_selected_parts(&tree, &[PartId("part:BV1:100".into())], &options)
+        .unwrap()
+        .remove(0);
+    let artifacts = &task.media_selection.artifacts;
+    assert_eq!(artifacts.len(), 3);
+    assert_eq!(artifacts[0].path, task.output_path);
+    assert!(
+        artifacts
+            .iter()
+            .any(|a| a.intent == Some(DownloadResourceIntent::Audio)
+                && a.path.extension().unwrap() == "mp3"
+                && !a.original)
+    );
+    assert!(
+        artifacts
+            .iter()
+            .any(|a| a.intent == Some(DownloadResourceIntent::Audio)
+                && a.path.extension().unwrap() == "m4s"
+                && a.original)
+    );
+}
+
+#[test]
 fn estimate_selected_parts_download_size_uses_selected_media_bandwidth_and_duration() {
     let tree = fixture_tree(true);
     let options = DownloadOptions::new(PathBuf::from("downloads"));

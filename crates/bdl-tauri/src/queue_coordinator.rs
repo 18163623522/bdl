@@ -80,7 +80,7 @@ pub(crate) fn prepare_duplicate_copies(
         .collect::<HashSet<_>>();
     let mut reserved_paths = existing
         .iter()
-        .map(|task| task.output_path.clone())
+        .flat_map(DownloadTask::file_paths)
         .collect::<HashSet<_>>();
     let mut prepared = Vec::with_capacity(tasks.len());
     for task in tasks {
@@ -113,10 +113,18 @@ pub(crate) fn reserve_queued_paths(
     let mut reserved = existing
         .iter()
         .filter(|task| task.status != TaskStatus::Completed)
-        .map(|task| task.output_path.clone())
+        .flat_map(DownloadTask::file_paths)
         .collect::<HashSet<_>>();
     let mut prepared = Vec::with_capacity(tasks.len());
     for task in tasks {
+        if task.media_selection.workflow.is_some() {
+            if let Some(task) =
+                bdl_core::workflow::reserve_task_paths(task, &mut reserved, strategy)?
+            {
+                prepared.push(task);
+            }
+            continue;
+        }
         let path = if reserved.contains(&task.output_path) {
             Some(unique_path(task.output_path.clone(), &mut reserved))
         } else {

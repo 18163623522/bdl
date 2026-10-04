@@ -17,6 +17,7 @@ import { useUiStore } from './ui'
 import type { InlineNotice, NoticeTone } from './feedback'
 import { NOTICE_CLEAR_DELAY } from './feedback'
 import { fillMissingDefaults } from '../utils/settingsDefaults'
+import { builtinDownloadPresets, cloneDownloadPresets, migrateDownloadPresets, downloadPresetsError } from '../utils/downloadWorkflow'
 
 export const defaultNamingTemplate = '{title}/P{part_index} - {part_title}.{ext}'
 export const embeddingContainerError = (
@@ -72,6 +73,8 @@ const defaultSettings = (): SettingsSnapshot => ({
   document_tree_output: null,
   naming_template: defaultNamingTemplate,
   naming_presets: [],
+  download_presets: builtinDownloadPresets(),
+  selected_download_preset: 'video',
   quality: 'best',
   archive_mode: 'fast',
   archive_assets: {
@@ -144,7 +147,7 @@ interface EnvironmentCheckOverrides {
   ffmpegPath?: string | null
 }
 
-type AppPreferences = Pick<SettingsSnapshot, 'usage_notice_acknowledged' | 'auto_check_updates' | 'theme_preference'>
+type AppPreferences = Pick<SettingsSnapshot, 'usage_notice_acknowledged' | 'auto_check_updates' | 'theme_preference' | 'selected_download_preset' | 'download_presets'>
 type DownloadPreferences = Pick<SettingsSnapshot, 'media_mode' | 'audio_output_format' | 'subtitle_format' | 'danmaku_format' | 'archive_mode' | 'archive_assets' | 'embed_cover' | 'embed_subtitles' | 'output_extension' | 'retain_raw_streams'>
 const settingsWrites = new WeakMap<object, Promise<unknown>>()
 const enqueueSettingsWrite = <T>(store: object, write: () => Promise<T>): Promise<T> => {
@@ -170,6 +173,9 @@ export const useSettingsStore = defineStore('settings', {
     environmentCheckId: 0,
   }),
   getters: {
+    downloadPresetError(state): string | null {
+      return downloadPresetsError(state.draft.download_presets, state.draft.selected_download_preset)
+    },
     changed(state): boolean {
       return JSON.stringify(state.saved) !== JSON.stringify(state.draft)
     },
@@ -265,7 +271,7 @@ export const useSettingsStore = defineStore('settings', {
     async saveDraft() {
       const ui = useUiStore()
       const namingError = validateNamingTemplate(this.draft.naming_template)
-      const compatibilityError = embeddingContainerError(this.draft)
+      const compatibilityError = embeddingContainerError(this.draft) ?? this.downloadPresetError
       if (namingError || compatibilityError) {
         this.error = namingError ?? compatibilityError
         this.setNotice(this.error ?? '请检查设置', 'warning')
@@ -478,7 +484,7 @@ export const useSettingsStore = defineStore('settings', {
       this.draft = cloneSettings(this.saved)
     },
     restoreDefaults() {
-      this.draft = defaultSettings()
+      this.draft = normalizeSettings(defaultSettings())
     },
     setDownloadDir(value: string) {
       const trimmed = value.trim()
@@ -625,6 +631,7 @@ const normalizeSettings = (saved: SettingsSnapshot): SettingsSnapshot => {
   const settings = fillMissingDefaults(defaultSettings(), saved)
   return {
     ...settings,
+    ...migrateDownloadPresets(saved.download_presets?.length ? settings : { ...settings, download_presets: [], selected_download_preset: '' }),
     parse_rules: { pages_per_round: settings.parse_rules?.pages_per_round ?? 3, interval_seconds: settings.parse_rules?.interval_seconds ?? 1, rest_seconds: settings.parse_rules?.rest_seconds ?? 3 },
     download_dir: settings.download_dir?.trim() || null,
     document_tree_output: settings.document_tree_output
@@ -673,6 +680,7 @@ const normalizeSettings = (saved: SettingsSnapshot): SettingsSnapshot => {
 
 const cloneSettings = (settings: SettingsSnapshot): SettingsSnapshot => ({
   ...settings,
+  download_presets: cloneDownloadPresets(settings.download_presets ?? []),
   parse_rules: { ...settings.parse_rules },
   document_tree_output: settings.document_tree_output ? { ...settings.document_tree_output } : null,
   archive_assets: { ...settings.archive_assets },

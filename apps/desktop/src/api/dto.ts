@@ -176,6 +176,8 @@ export type DownloadTaskRefreshInput =
   | { kind: 'cheese_episode'; ep_id: number }
 
 export interface DownloadTaskMediaSelection {
+  workflow?: DownloadWorkflow | null
+  artifacts?: DownloadArtifact[]
   video_quality: string
   audio_quality: string
   video_codec: string
@@ -262,6 +264,8 @@ export interface MediaPreferences {
 }
 
 export interface SettingsSnapshot {
+  download_presets: DownloadPreset[]
+  selected_download_preset: string
   settings_schema_version: number
   usage_notice_acknowledged: boolean
   auto_check_updates: boolean
@@ -303,6 +307,43 @@ export interface NamingPreset {
   id: string
   name: string
   template: string
+}
+
+export interface WorkflowMediaInput {
+  enabled: boolean
+  save: boolean
+  format: 'm4s' | 'mp3'
+  retain_original: boolean
+}
+export interface WorkflowAssetOutput {
+  enabled: boolean
+  save: boolean
+  embed: boolean
+  format: 'original' | 'srt' | 'ass' | 'xml' | 'html'
+  retain_original: boolean
+}
+export interface DownloadWorkflow {
+  video: WorkflowMediaInput
+  audio: WorkflowMediaInput
+  cover: WorkflowAssetOutput
+  subtitles: WorkflowAssetOutput
+  danmaku: WorkflowAssetOutput
+  nfo: boolean
+  merge_media: boolean
+  container: 'mp4' | 'mkv'
+  quality: string
+  audio_quality: string
+  codec: VideoCodecPreference
+  media_preferences: MediaPreferences
+  missing_quality_policy: MissingQualityPolicy
+}
+export interface DownloadPreset { id: string; name: string; workflow: DownloadWorkflow }
+export interface DownloadArtifact {
+  path: string
+  intent: DownloadResourceIntent | null
+  resource_id: string | null
+  original: boolean
+  document_uri?: string | null
 }
 
 export interface MaintenanceResult {

@@ -3,6 +3,43 @@ use bdl_core::planner::ArchiveAssetSelection;
 use bdl_core::settings::AppSettings;
 
 #[test]
+fn legacy_media_configuration_migrates_once_without_losing_outputs() {
+    let old: AppSettings = serde_json::from_value(serde_json::json!({ "media_mode": "audio_only", "audio_output_format": "m4s", "archive_mode": "custom", "archive_assets": { "cover": false, "subtitles": true, "danmaku": true, "nfo": false }, "subtitle_format": "ass", "danmaku_format": "html" })).unwrap();
+    let settings = old.normalized();
+    settings.validate().unwrap();
+    let preset = settings
+        .download_presets
+        .iter()
+        .find(|p| p.id == settings.selected_download_preset)
+        .unwrap();
+    assert_eq!(preset.name, "历史配置");
+    assert!(!preset.workflow.video.enabled);
+    assert!(preset.workflow.audio.enabled && preset.workflow.audio.save);
+    assert_eq!(preset.workflow.audio.format, "m4s");
+    assert!(preset.workflow.subtitles.enabled && preset.workflow.subtitles.save);
+    assert_eq!(preset.workflow.subtitles.format, "ass");
+    assert_eq!(preset.workflow.danmaku.format, "html");
+    let restored: AppSettings =
+        serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+    assert_eq!(restored.normalized(), settings);
+}
+
+#[test]
+fn recipes_validate_outputs_default_and_names() {
+    let mut settings = AppSettings::default().normalized();
+    settings.validate().unwrap();
+    settings.download_presets[0].workflow.video.enabled = false;
+    settings.download_presets[0].workflow.audio.enabled = false;
+    assert!(settings.validate().is_err());
+    let mut settings = AppSettings::default().normalized();
+    settings.selected_download_preset = "removed".into();
+    assert!(settings.validate().is_err());
+    settings.selected_download_preset = "video".into();
+    settings.download_presets[1].name = settings.download_presets[0].name.clone();
+    assert!(settings.validate().is_err());
+}
+
+#[test]
 fn settings_missing_fields_recursively_use_current_defaults() {
     fn check(defaults: &serde_json::Value, path: &mut Vec<String>, object: &serde_json::Value) {
         for (key, value) in object.as_object().unwrap() {
@@ -26,7 +63,7 @@ fn settings_missing_fields_recursively_use_current_defaults() {
             path.pop();
         }
     }
-    let defaults = serde_json::to_value(AppSettings::default()).unwrap();
+    let defaults = serde_json::to_value(AppSettings::default().normalized()).unwrap();
     check(&defaults, &mut Vec::new(), &defaults);
 }
 
@@ -266,4 +303,33 @@ fn settings_validate_accepts_subtitle_embedding_for_mkv() {
     settings
         .validate()
         .expect("MKV subtitle embedding should be valid");
+}
+
+#[test]
+fn quality_is_separate_from_content_presets_and_history_name_is_migrated() {
+    let settings = AppSettings {
+        quality: "80".into(),
+        ..Default::default()
+    }
+    .normalized();
+    assert_eq!(settings.download_presets.len(), 3);
+    assert_eq!(settings.selected_download_preset, "video");
+    assert_eq!(
+        settings
+            .download_presets
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        ["快速下载", "下载全部资源", "封装 MKV（视频+字幕）"]
+    );
+    let mut old = settings;
+    old.download_presets
+        .push(bdl_core::workflow::DownloadPreset {
+            id: "migrated".into(),
+            name: "原下载配置".into(),
+            workflow: bdl_core::workflow::DownloadWorkflow::default(),
+        });
+    let new = old.normalized();
+    assert_eq!(new.download_presets.last().unwrap().name, "历史配置");
+    assert_eq!(new.clone().normalized(), new);
 }

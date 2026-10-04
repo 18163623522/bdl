@@ -61,6 +61,7 @@ export interface ParseLoadAllRequest {
 }
 
 export interface SelectionCreateTasksRequest {
+  download_preset_id?: string
   source_id: string
   part_ids: string[]
   output_dir?: string
@@ -87,6 +88,7 @@ export interface SelectionCreateTasksRequest {
 }
 
 export interface SelectionEstimateSizeRequest {
+  download_preset_id?: string
   source_id: string
   part_ids: string[]
   missing_quality_policy?: SettingsSnapshot['missing_quality_policy']
