@@ -461,7 +461,7 @@ pub fn validate_presets(presets: &[DownloadPreset], selected: &str) -> BdlResult
         if preset.id.trim().is_empty()
             || preset.name.trim().is_empty()
             || preset.name.chars().count() > 40
-            || !ids.insert(&preset.id)
+            || !ids.insert(preset.id.as_str())
             || !names.insert(preset.name.trim())
         {
             return Err(BdlError::Planning {
@@ -470,7 +470,7 @@ pub fn validate_presets(presets: &[DownloadPreset], selected: &str) -> BdlResult
         }
         preset.workflow.validate()?;
     }
-    if !ids.contains(&selected.to_owned()) {
+    if !ids.contains(selected) {
         return Err(BdlError::Planning {
             message: "默认下载预设不存在，请重新选择。".into(),
         });
