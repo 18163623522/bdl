@@ -287,6 +287,23 @@ it('expands legacy unrestricted video rules into the default concrete quality or
 describe('direct attachment choices and media output', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
+  it('remembers download formats while preserving an unrelated unsaved naming draft', async () => {
+    vi.resetAllMocks()
+    const store = useSettingsStore()
+    store.loaded = true
+    store.draft.naming_template = '{bvid}.{ext}'
+    mockedSettingsUpdate.mockImplementation(async (value) => value)
+    await store.saveAppPreferences({ media_mode: 'audio_only', audio_output_format: 'mp3', subtitle_format: 'ass', danmaku_format: 'html' })
+    expect(store.saved.media_mode).toBe('audio_only')
+    expect(store.saved.audio_output_format).toBe('mp3')
+    expect(store.draft.naming_template).toBe('{bvid}.{ext}')
+    const persisted = JSON.parse(JSON.stringify(store.saved))
+    setActivePinia(createPinia())
+    const restarted = useSettingsStore()
+    restarted.apply(persisted)
+    expect(restarted.saved).toMatchObject({ media_mode: 'audio_only', audio_output_format: 'mp3', subtitle_format: 'ass', danmaku_format: 'html' })
+  })
+
   it('starts with no standalone files and changes only the checked attachment', () => {
     const store = useSettingsStore()
     expect(selectedArchiveAssets(store.draft)).toEqual({ cover: false, subtitles: false, danmaku: false, nfo: false })

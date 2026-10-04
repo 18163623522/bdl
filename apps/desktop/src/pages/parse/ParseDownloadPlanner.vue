@@ -38,6 +38,10 @@ const documentTreeOutput = ref<DocumentTreeDirectory | null>(null)
 const rememberDocumentTreeOutput = ref(false)
 const outputExtension = ref<'mp4' | 'mkv'>('mp4')
 const mediaMode = ref<DownloadMediaMode>('audio_video')
+const audioOutputFormat = ref<SettingsSnapshot['audio_output_format']>('m4s')
+const subtitleFormat = ref<SettingsSnapshot['subtitle_format']>('srt')
+const danmakuFormat = ref<SettingsSnapshot['danmaku_format']>('xml')
+const effectiveOutputExtension = computed(() => mediaMode.value === 'audio_only' ? audioOutputFormat.value : outputExtension.value)
 const videoQuality = ref('best')
 const mediaPreferences = ref(cloneMediaPreferences())
 const audioQuality = ref('best')
@@ -62,11 +66,6 @@ const sizeEstimate = ref<{ estimated_bytes: number; estimated_parts: number; unk
 const sizeEstimateLoading = ref(false)
 let sizeEstimateRevision = 0
 
-const mediaModeOptions = [
-  { label: '音视频', value: 'audio_video' },
-  { label: '仅视频', value: 'video_only' },
-  { label: '仅音频', value: 'audio_only' },
-]
 const androidPlatform = isAndroidPlatform()
 const activeSource = computed(() => parse.activeSource)
 const selectedSourceIds = computed(() => parse.isBatch
@@ -77,11 +76,14 @@ const selectionUnit = computed(() => parse.isBatch ? '个视频' : '个分集')
 const selectionTitle = computed(() => parse.isBatch ? '批量链接' : activeSource.value?.source.title ?? '')
 const activeLoading = computed(() => selectedSourceIds.value.some((sourceId) => parse.loadingBySource[sourceId]))
 const includesVideo = computed(() => mediaMode.value !== 'audio_only')
-const includesAudio = computed(() => mediaMode.value !== 'video_only')
+watch([mediaMode, audioOutputFormat], ([mode, format]) => {
+  if (!downloadDialogOpen.value || (mode === settings.saved.media_mode && format === settings.saved.audio_output_format)) return
+  void settings.saveAppPreferences({ media_mode: mode, audio_output_format: format })
+})
 const scheduleError = computed(() => scheduledLocalError(scheduledLocal.value, scheduleValidationNow.value))
 const taskSpeedLimitError = computed(() => speedLimitMbError(taskSpeedLimitMb.value))
 const embeddingFormatError = computed(() =>
-  outputExtension.value !== 'mkv' && (embedCover.value || embedSubtitles.value)
+  includesVideo.value && outputExtension.value !== 'mkv' && (embedCover.value || embedSubtitles.value)
     ? '嵌入封面和字幕仅支持 MKV，请改用 MKV 或关闭本次嵌入。'
     : null,
 )
@@ -145,7 +147,10 @@ const restoreDefaults = () => {
   documentTreeOutput.value = defaults.document_tree_output ? { ...defaults.document_tree_output } : null
   rememberDocumentTreeOutput.value = false
   outputExtension.value = defaults.output_extension
-  mediaMode.value = 'audio_video'
+  mediaMode.value = defaults.media_mode
+  audioOutputFormat.value = defaults.audio_output_format
+  subtitleFormat.value = defaults.subtitle_format
+  danmakuFormat.value = defaults.danmaku_format
   mediaPreferences.value = cloneMediaPreferences(defaults.media_preferences)
   videoQuality.value = mediaPreferences.value.video.length ? 'best' : defaults.quality
   audioQuality.value = mediaPreferences.value.audio.length ? 'best' : defaults.audio_quality
@@ -215,13 +220,15 @@ const createTasks = async (duplicatePolicy: DuplicateTaskPolicy = 'ask') => {
     downloadDir: isMobilePlatform() ? null : downloadDir.value.trim() || 'downloads',
     documentTreeOutput: isMobilePlatform() ? documentTreeOutput.value : null,
     archiveMode: 'custom',
-    outputExtension: outputExtension.value,
+    outputExtension: effectiveOutputExtension.value,
+    subtitleFormat: subtitleFormat.value,
+    danmakuFormat: danmakuFormat.value,
     namingTemplate: namingTemplate.value,
     duplicateNamingStrategy: duplicateNamingStrategy.value,
     archiveAssets: { ...archiveAssets.value },
     retainRawStreams: retainRawStreams.value,
-    embedCover: embedCover.value,
-    embedSubtitles: embedSubtitles.value,
+    embedCover: includesVideo.value && embedCover.value,
+    embedSubtitles: includesVideo.value && embedSubtitles.value,
     missingQualityPolicy: missingQualityPolicy.value,
     mediaMode: mediaMode.value,
     quality: videoQuality.value,
@@ -236,6 +243,20 @@ const createTasks = async (duplicatePolicy: DuplicateTaskPolicy = 'ask') => {
     scheduledAt: scheduledLocal.value ? toScheduledIso(scheduledLocal.value) : undefined,
     speedLimitBytesPerSecond: toBytesPerSecond(taskSpeedLimitMb.value),
   })
+  if (result && (result.created.length > 0 || (!result.requires_confirmation && result.failures.length === 0))) {
+    await settings.saveAppPreferences({
+      media_mode: mediaMode.value,
+      audio_output_format: audioOutputFormat.value,
+      subtitle_format: subtitleFormat.value,
+      danmaku_format: danmakuFormat.value,
+      archive_mode: 'custom',
+      archive_assets: { ...archiveAssets.value },
+      output_extension: outputExtension.value,
+      embed_cover: embedCover.value,
+      embed_subtitles: embedSubtitles.value,
+      retain_raw_streams: retainRawStreams.value,
+    })
+  }
   if (result?.failures.length) {
     const firstFailure = result.failures[0]
     downloadNotice.value = {
@@ -324,34 +345,29 @@ const chooseDocumentTreeOutput = async () => {
             <UiTextField :model-value="downloadDir" label="保存目录" placeholder="留空时使用 downloads" @update:model-value="updateDownloadDir" />
             <UiButton variant="secondary" :disabled="activeLoading" @click="chooseDownloadDir">选择</UiButton>
           </div>
-          <UiSelect v-model="mediaMode" label="下载内容" :options="mediaModeOptions" />
-          <NamingTemplatePicker :key="defaultsRevision" v-model="namingTemplate" :presets="namingPresets" :extension="outputExtension" />
+          <NamingTemplatePicker :key="defaultsRevision" v-model="namingTemplate" :presets="namingPresets" :extension="effectiveOutputExtension" />
           <UiSelect v-model="duplicateNamingStrategy" label="重名处理" :options="duplicateNamingOptions" helper="目标文件已存在时使用此策略；传输记录中的重复任务会另外提示。" />
         </div>
         <div v-show="activeTab === 'media'" class="grid gap-4">
-          <div class="grid grid-cols-2 gap-3 max-[600px]:grid-cols-1">
-            <UiSelect v-if="includesVideo" v-model="videoQuality" label="视频清晰度" :options="videoQualityOptions" :helper="mediaPreferences.video.length && videoQuality === 'best' && videoCodec === 'auto' ? '按本次优先顺序选择' : undefined" />
-            <UiSelect v-if="includesAudio" v-model="audioQuality" label="音频质量" :options="audioQualityOptions" />
-            <UiSelect v-if="includesVideo" v-model="videoCodec" label="视频编码偏好" :options="codecOptions" />
-            <UiSelect v-model="missingQualityPolicy" label="指定质量不可用时" :options="missingQualityOptions" />
-          </div>
           <MediaOutputOptions
+            v-model:mode="mediaMode"
+            v-model:audio-format="audioOutputFormat"
+            v-model:subtitle-format="subtitleFormat"
+            v-model:danmaku-format="danmakuFormat"
+            v-model:assets="archiveAssets"
             v-model:format="outputExtension"
             v-model:embed-cover="embedCover"
             v-model:embed-subtitles="embedSubtitles"
             v-model:retain-raw-streams="retainRawStreams"
             :embedding-supported="!androidPlatform"
-          />
-          <section class="grid gap-3" aria-label="附加文件">
-            <h3 class="m-0 text-sm font-semibold">附加文件</h3>
-            <p class="m-0 text-xs text-(--color-muted)">按需勾选，保存为视频旁的独立文件。</p>
-            <div class="grid grid-cols-2 gap-3 max-[600px]:grid-cols-1">
-              <UiCheckbox v-model="archiveAssets.cover" label="保存封面" />
-              <UiCheckbox v-model="archiveAssets.subtitles" label="保存字幕" />
-              <UiCheckbox v-model="archiveAssets.danmaku" label="保存弹幕" />
-              <UiCheckbox v-model="archiveAssets.nfo" label="生成 NFO" />
-            </div>
-          </section>
+          >
+            <template #video>
+              <UiSelect v-model="videoQuality" label="视频清晰度" :options="videoQualityOptions" :helper="mediaPreferences.video.length && videoQuality === 'best' && videoCodec === 'auto' ? '按本次优先顺序选择' : undefined" />
+              <UiSelect v-model="videoCodec" label="视频编码偏好" :options="codecOptions" />
+            </template>
+            <template #audio><UiSelect v-model="audioQuality" label="音频质量" :options="audioQualityOptions" /></template>
+          </MediaOutputOptions>
+          <UiSelect v-model="missingQualityPolicy" label="指定质量不可用时" :options="missingQualityOptions" />
           <UiDisclosure title="本次优先顺序" description="最优画质 + 自动编码时使用视频排序；最佳可用音频时使用音频排序。" variant="panel">
             <MediaPreferenceEditor v-model="mediaPreferences" />
           </UiDisclosure>

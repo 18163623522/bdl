@@ -722,7 +722,7 @@ const actionLabel = (action: TaskActionKind): string => {
     retry: '重试',
     refresh_retry: '刷新链接并重试',
     cancel: '取消',
-    remove: '移除',
+    remove: '删除任务',
     open_file: '打开文件',
     open_dir: '打开文件夹',
     copy_source: '复制来源',

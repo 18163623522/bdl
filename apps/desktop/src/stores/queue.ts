@@ -454,10 +454,10 @@ export const useQueueStore = defineStore('queue', {
       await this.runBulkCommand(() => queueBulkRefreshUrlsAndRetry({ task_ids: taskIds }), '刷新链接并重试')
     },
     async bulkRemove(taskIds: string[]) {
-      await this.runBulkCommand(() => queueBulkRemove({ task_ids: taskIds }), '移除')
+      await this.runBulkCommand(() => queueBulkRemove({ task_ids: taskIds }), '已删除', '保留下载文件')
     },
     async clearCompleted() {
-      await this.runBulkCommand(() => queueClearCompleted(), '清理已完成')
+      await this.runBulkCommand(() => queueClearCompleted(), '已删除', '保留下载文件')
     },
     async remove(taskId: string) {
       const ui = useUiStore()
@@ -473,7 +473,7 @@ export const useQueueStore = defineStore('queue', {
         if (this.selectedTaskId) {
           void this.loadLogs(this.selectedTaskId)
         }
-        this.setNotice('已移除任务', 'info')
+        this.setNotice('已删除任务，保留下载文件', 'info')
       } catch (error) {
         ui.pushToast(errorMessage(error), 'danger')
       }
@@ -538,7 +538,7 @@ export const useQueueStore = defineStore('queue', {
         return false
       }
     },
-    async runBulkCommand(command: () => Promise<BulkQueueResult>, actionLabel: string) {
+    async runBulkCommand(command: () => Promise<BulkQueueResult>, actionLabel: string, successNote = '') {
       const ui = useUiStore()
       try {
         const result = await command()
@@ -547,7 +547,8 @@ export const useQueueStore = defineStore('queue', {
         const succeeded = result.updated.length + result.removed.length
         if (succeeded > 0) {
           const suffix = result.failed.length ? `，${result.failed.length} 个失败` : ''
-          this.setNotice(`${actionLabel} ${succeeded} 个任务${suffix}`, result.failed.length ? 'warning' : 'success')
+          const note = successNote ? `，${successNote}` : ''
+          this.setNotice(`${actionLabel} ${succeeded} 个任务${suffix}${note}`, result.failed.length ? 'warning' : 'success')
         } else if (result.failed.length > 0) {
           this.setNotice(`${result.failed.length} 个任务处理失败`, 'warning')
         } else {

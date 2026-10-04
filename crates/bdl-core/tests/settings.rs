@@ -39,6 +39,8 @@ fn settings_partial_config_preserves_choices_through_save_and_reload() {
         "theme_preference": "dark",
         "naming_template": "{title}.{ext}",
         "quality": "80", "codec": "hevc", "audio_quality": "30280",
+        "media_mode": "audio_only", "audio_output_format": "mp3",
+        "subtitle_format": "ass", "danmaku_format": "html",
         "retry_count": 0, "segment_count": 1,
         "auto_refresh_expired_urls": false,
         "global_speed_limit_bytes_per_second": null,

@@ -527,6 +527,10 @@ class StoragePlugin(private val activity: Activity) : Plugin(activity) {
 
   private fun mimeType(fileName: String): String {
     val extension = fileName.substringAfterLast('.', "").lowercase()
+    if (extension == "m4s") return "audio/mp4"
+    if (extension == "mp3") return "audio/mpeg"
+    if (extension == "ass") return "text/x-ssa"
+    if (extension == "srt") return "application/x-subrip"
     return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
       ?: "application/octet-stream"
   }

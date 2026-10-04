@@ -1,4 +1,5 @@
 pub mod account;
+pub mod danmaku;
 pub mod diagnostics;
 pub mod error;
 pub mod fetcher;

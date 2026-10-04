@@ -88,8 +88,8 @@ const moreItems = computed(() => [
       >
         刷新链接并重试
       </UiButton>
-      <UiButton v-if="canRemove" size="compact" variant="danger" :disabled="loading" @click="emit('remove')"
-        >移除</UiButton
+      <UiButton v-if="canRemove" size="compact" variant="danger" title="删除任务记录，保留下载文件" :disabled="loading" @click="emit('remove')"
+        >删除任务</UiButton
       >
     </div>
 
@@ -97,10 +97,11 @@ const moreItems = computed(() => [
       <UiButton
         size="compact"
         variant="secondary"
+        title="删除已完成的任务记录，保留下载文件"
         :disabled="loading || completedCount === 0"
         @click="emit('clearCompleted')"
       >
-        清理已完成
+        删除已完成任务
       </UiButton>
       <UiButton size="compact" variant="secondary" :disabled="loading" @click="emit('refresh')">刷新</UiButton>
       <UDropdownMenu

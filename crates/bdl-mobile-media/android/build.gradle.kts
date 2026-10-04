@@ -32,6 +32,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation(project(":tauri-android"))
     implementation("org.bytedeco:javacpp:1.5.14")
+    implementation("org.bytedeco:javacv:1.5.14") { isTransitive = false }
     implementation("org.bytedeco:javacpp:1.5.14:android-arm64")
     implementation("org.bytedeco:ffmpeg:8.1.2-1.5.14")
     implementation("org.bytedeco:ffmpeg:8.1.2-1.5.14:android-arm64")

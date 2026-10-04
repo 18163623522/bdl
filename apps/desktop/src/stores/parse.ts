@@ -65,7 +65,9 @@ export interface CreateTaskOptions {
   downloadDir?: string | null
   documentTreeOutput?: DocumentTreeDirectory | null
   archiveMode?: SettingsSnapshot['archive_mode']
-  outputExtension?: SettingsSnapshot['output_extension']
+  outputExtension?: 'mp4' | 'mkv' | 'm4s' | 'mp3'
+  subtitleFormat?: SettingsSnapshot['subtitle_format']
+  danmakuFormat?: SettingsSnapshot['danmaku_format']
   namingTemplate?: string
   duplicateNamingStrategy?: SettingsSnapshot['duplicate_naming_strategy']
   archiveAssets?: SettingsSnapshot['archive_assets']
@@ -349,7 +351,9 @@ export const useParseStore = defineStore('parse', {
         const defaults: SettingsSnapshot = JSON.parse(JSON.stringify(settings.saved))
         const options: CreateTaskOptions = {
           downloadDir: defaults.download_dir ?? 'downloads', archiveMode: defaults.archive_mode,
-          outputExtension: defaults.output_extension, namingTemplate: defaults.naming_template,
+          mediaMode: defaults.media_mode,
+          outputExtension: defaults.media_mode === 'audio_only' ? defaults.audio_output_format : defaults.output_extension, namingTemplate: defaults.naming_template,
+          subtitleFormat: defaults.subtitle_format, danmakuFormat: defaults.danmaku_format,
           duplicateNamingStrategy: defaults.duplicate_naming_strategy, archiveAssets: defaults.archive_assets,
           retainRawStreams: defaults.retain_raw_streams, embedCover: defaults.embed_cover,
           embedSubtitles: defaults.embed_subtitles, missingQualityPolicy: defaults.missing_quality_policy,
@@ -591,7 +595,7 @@ export const useParseStore = defineStore('parse', {
           source_id: sourceId,
           part_ids: options.partIdsBySource?.[sourceId] ?? this.selectionBySource[sourceId] ?? [],
           missing_quality_policy: options.missingQualityPolicy ?? settings.saved.missing_quality_policy,
-          media_mode: options.mediaMode ?? 'audio_video',
+          media_mode: options.mediaMode ?? settings.saved.media_mode,
           quality: options.quality ?? settings.saved.quality,
           audio_quality: options.audioQuality ?? settings.saved.audio_quality,
           codec: options.codec ?? settings.saved.codec,
@@ -628,6 +632,8 @@ export const useParseStore = defineStore('parse', {
             ? options.documentTreeOutput
             : settings.saved.document_tree_output
         const mediaPreferences = mediaPreferencesForTaskRequest(options, settings.saved)
+        const mediaMode = options.mediaMode ?? settings.saved.media_mode
+        const audioOnly = mediaMode === 'audio_only'
         const aggregate: CreateTasksForSourcesResult = {
           created: [],
           duplicates: [],
@@ -647,15 +653,17 @@ export const useParseStore = defineStore('parse', {
               output_dir: downloadDir || undefined,
               document_tree_output: documentTreeOutput ?? undefined,
               archive_mode: options.archiveMode ?? settings.saved.archive_mode,
-              output_extension: options.outputExtension ?? settings.saved.output_extension,
+              output_extension: options.outputExtension ?? (audioOnly ? settings.saved.audio_output_format : settings.saved.output_extension),
+              subtitle_format: options.subtitleFormat ?? settings.saved.subtitle_format,
+              danmaku_format: options.danmakuFormat ?? settings.saved.danmaku_format,
               naming_template: options.namingTemplate ?? settings.saved.naming_template,
               duplicate_naming_strategy: options.duplicateNamingStrategy ?? settings.saved.duplicate_naming_strategy,
               archive_assets: options.archiveAssets ?? settings.saved.archive_assets,
               retain_raw_streams: options.retainRawStreams ?? settings.saved.retain_raw_streams,
-              embed_cover: options.embedCover ?? settings.saved.embed_cover,
-              embed_subtitles: options.embedSubtitles ?? settings.saved.embed_subtitles,
+              embed_cover: !audioOnly && (options.embedCover ?? settings.saved.embed_cover),
+              embed_subtitles: !audioOnly && (options.embedSubtitles ?? settings.saved.embed_subtitles),
               missing_quality_policy: options.missingQualityPolicy ?? settings.saved.missing_quality_policy,
-              media_mode: options.mediaMode ?? 'audio_video',
+              media_mode: mediaMode,
               quality: options.quality ?? settings.saved.quality,
               audio_quality: options.audioQuality ?? settings.saved.audio_quality,
               codec: options.codec ?? settings.saved.codec,

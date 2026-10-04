@@ -109,6 +109,32 @@ impl MediaMuxer {
         }
         let output = command.output().await?;
 
+        #[cfg(windows)]
+        let output = if !output.status.success()
+            && lower_extension(&request.output_path).as_deref() == Some("mp3")
+            && String::from_utf8_lossy(&output.stderr).contains("Unknown encoder 'libmp3lame'")
+        {
+            // Some Windows FFmpeg builds ship the native Media Foundation encoder only.
+            let mut args = ffmpeg_args(request)?;
+            for arg in &mut args {
+                if arg == "libmp3lame" {
+                    *arg = os("mp3_mf");
+                }
+            }
+            if let Some(index) = args.iter().position(|arg| arg == "-q:a") {
+                args[index] = os("-b:a");
+                args[index + 1] = os("192k");
+            }
+            let output_path = args.pop().unwrap();
+            args.extend([os("-ar"), os("44100"), output_path]);
+            hidden_command(&self.ffmpeg_path)
+                .args(args)
+                .output()
+                .await?
+        } else {
+            output
+        };
+
         if output.status.success() {
             return Ok(());
         }
@@ -222,6 +248,28 @@ fn ffmpeg_args(request: &MuxRequest) -> Result<Vec<OsString>, MuxError> {
 }
 
 fn basic_mux_args(request: &MuxRequest) -> Result<Vec<OsString>, MuxError> {
+    if lower_extension(&request.output_path).as_deref() == Some("mp3") {
+        let audio = request
+            .audio_path
+            .as_ref()
+            .filter(|_| request.video_path.is_none())
+            .ok_or(MuxError::MissingMediaInput)?;
+        return Ok(vec![
+            os("-y"),
+            os("-i"),
+            audio.as_os_str().to_owned(),
+            os("-map"),
+            os("0:a:0"),
+            os("-vn"),
+            os("-c:a"),
+            os("libmp3lame"),
+            os("-q:a"),
+            os("2"),
+            os("-ac"),
+            os("2"),
+            request.output_path.as_os_str().to_owned(),
+        ]);
+    }
     let mut args = vec![os("-y")];
     let mut next_input_index = 0usize;
     push_optional_input(
@@ -379,10 +427,19 @@ fn platform_executable_candidates(_name: &str) -> Vec<PathBuf> {
 fn stderr_summary(stderr: &[u8]) -> String {
     let text = String::from_utf8_lossy(stderr);
     let trimmed = text.trim();
-    if trimmed.len() <= 500 {
+    if trimmed.chars().count() <= 500 {
         trimmed.to_owned()
     } else {
-        format!("{}...", &trimmed[..500])
+        // FFmpeg prints its banner first and actionable failures last. Keep Unicode intact.
+        let tail = trimmed
+            .chars()
+            .rev()
+            .take(500)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<String>();
+        format!("...{tail}")
     }
 }
 

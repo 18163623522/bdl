@@ -67,6 +67,8 @@ export interface SelectionCreateTasksRequest {
   document_tree_output?: DocumentTreeDirectory
   archive_mode?: ArchiveMode
   output_extension?: string
+  subtitle_format?: SettingsSnapshot['subtitle_format']
+  danmaku_format?: SettingsSnapshot['danmaku_format']
   naming_template?: string
   duplicate_naming_strategy?: SettingsSnapshot['duplicate_naming_strategy']
   archive_assets?: SettingsSnapshot['archive_assets']

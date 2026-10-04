@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 import type { NormalizedSourceTree } from '../../src/api/dto';
 import type { DownloadTask } from '../../src/api/dto';
 
@@ -84,6 +85,7 @@ const installTauriMock = async (
                 auto_refresh_expired_urls: true,
               };
             }
+            if (command === 'settings_update') return (args as unknown as { settings: unknown }).settings;
             if (command === 'environment_health') {
               return {
                 ready: environmentReady,
@@ -450,7 +452,7 @@ test('mobile library uses compact covers and shared page actions', async ({ page
   await expect(page.locator('.workspace-enter-active, .workspace-leave-active')).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('reference-personal.png') });
   await page.getByRole('button', { name: /下载设置/ }).click();
-  await page.getByRole('button', { name: '下载 目录、并发与恢复' }).click();
+  await page.getByRole('button', { name: '下载 目录、速度与任务恢复' }).click();
   await page.getByLabel('全局下载限速（MB/s）', { exact: true }).fill('10');
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.getByRole('button', { name: '保存', exact: true })).toBeDisabled();
@@ -586,7 +588,8 @@ test('mobile redesign keeps content first with populated lists and bottom sheets
   await expect(page.getByRole('list', { name: '传输任务' })).toBeVisible();
   await expect(page.getByRole('table', { name: '传输任务' })).toHaveCount(0);
   await expect(page.locator('.task-playback-action').first()).toBeVisible();
-  await expect(page.locator('.mobile-task').first()).toContainText('下载视频中');
+  await expect(page.locator('.mobile-task').first()).toContainText('失败');
+  await expect(page.locator('.mobile-task').filter({ hasText: '下载视频中' })).toHaveCount(1);
   expect((await page.locator('.mobile-task').first().boundingBox())!.height).toBeLessThanOrEqual(64);
   expect((await page.locator('.task-artwork').first().boundingBox())!.height).toBeLessThanOrEqual(49);
   expect(await page.locator('.task-artwork').first().evaluate((artwork) => getComputedStyle(artwork).borderRadius)).toBe('4px');
@@ -1525,7 +1528,7 @@ test('download tabs use saved presets and keep overrides local', async ({ page }
   await expect.poll(async () => (await dialog.boundingBox())?.y).toBe(generalBounds?.y);
   await page.screenshot({ path: testInfo.outputPath('download-media.png') });
   await page.setViewportSize({ width: 900, height: 600 });
-  await dialog.getByRole('tab', { name: '常规', exact: true }).click();
+  await dialog.getByRole('tab', { name: '媒体', exact: true }).click();
   const scrollArea = dialog.locator('.download-options-scroll');
   await expect.poll(() => scrollArea.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
   await scrollArea.evaluate((element) => { element.scrollTop = element.scrollHeight; });
@@ -1540,7 +1543,7 @@ test('download tabs use saved presets and keep overrides local', async ({ page }
   });
   expect(result.request.naming_template).toBe('{title}.{ext}');
   expect(result.request.duplicate_naming_strategy).toBe('append_suffix');
-  expect(result.saves).toBe(0);
+  expect(result.saves).toBe(1);
 });
 
 
@@ -1592,7 +1595,7 @@ test('download archive settings inherit defaults and override processing per tas
   await page.getByRole('button', { name: '下载所选 (1)' }).click();
   const dialog = page.getByRole('dialog', { name: '下载设置' });
   await dialog.getByRole('tab', { name: '媒体', exact: true }).click();
-  for (const label of ['保留原始视频/音频轨道', '嵌入封面', '嵌入字幕（SRT）']) {
+  for (const label of ['保留原始视频/音频轨道', '嵌入封面', '嵌入字幕']) {
     await expect(dialog.getByRole('checkbox', { name: label, exact: true })).toBeChecked();
     await dialog.getByRole('checkbox', { name: label, exact: true }).uncheck();
   }
@@ -1603,7 +1606,7 @@ test('download archive settings inherit defaults and override processing per tas
     return { request: target.__BDL_ARCHIVE_REQUEST__, saves: target.__BDL_TEST_INVOKES__.filter((name) => name === 'settings_update').length };
   });
   expect(result.request).toMatchObject({ retain_raw_streams: false, embed_cover: false, embed_subtitles: false, archive_mode: 'custom', output_extension: 'mkv' });
-  expect(result.saves).toBe(0);
+  expect(result.saves).toBe(1);
 });
 
 for (const theme of ['light', 'dark'] as const) {
@@ -1629,19 +1632,20 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(nav.getByRole('button', { name: /附加文件/ })).toHaveCount(0);
     await nav.getByRole('button', { name: /媒体 画质/ }).click();
     await expect(page.getByRole('combobox', { name: '下载范围', exact: true })).toHaveCount(0);
-    for (const name of ['保存封面', '保存字幕', '保存弹幕', '生成 NFO']) {
+    for (const name of ['下载封面', '下载字幕', '下载弹幕', '生成 NFO']) {
       await expect(page.getByRole('checkbox', { name, exact: true })).toBeVisible();
       await expect(page.getByRole('checkbox', { name, exact: true })).not.toBeChecked();
     }
-    const coverFile = page.getByRole('checkbox', { name: '保存封面', exact: true });
+    const coverFile = page.getByRole('checkbox', { name: '下载封面', exact: true });
     await coverFile.focus();
     await page.keyboard.press('Space');
     await expect(coverFile).toBeChecked();
-    await expect(page.getByRole('checkbox', { name: '保存字幕', exact: true })).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: '下载字幕', exact: true })).not.toBeChecked();
     await page.screenshot({ path: testInfo.outputPath('settings-attachments.png') });
     await expect(page.getByRole('combobox', { name: '视频编码偏好', exact: true })).toBeVisible();
     const format = page.getByRole('combobox', { name: /^封装格式/ });
-    const embed = page.getByRole('checkbox', { name: '嵌入字幕（SRT）', exact: true });
+    await page.getByRole('checkbox', { name: '下载字幕', exact: true }).check();
+    const embed = page.getByRole('checkbox', { name: '嵌入字幕', exact: true });
     await expect(format).toContainText('MP4');
     await embed.focus();
     await page.keyboard.press('Space');
@@ -1659,7 +1663,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.screenshot({ path: testInfo.outputPath('settings-media-narrow.png') });
     await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect.poll(() => page.evaluate(() => (window as unknown as { __CLEAN_SETTINGS__?: unknown }).__CLEAN_SETTINGS__)).toMatchObject({
-      archive_mode: 'custom', archive_assets: { cover: true, subtitles: false, danmaku: false, nfo: false },
+      archive_mode: 'custom', archive_assets: { cover: true, subtitles: true, danmaku: false, nfo: false },
       output_extension: 'mkv', embed_subtitles: true, embed_cover: false,
     });
   });
@@ -1681,19 +1685,21 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: '选择 测试视频' }).click();
     await page.getByRole('button', { name: '下载所选 (1)' }).click();
     const dialog = page.getByRole('dialog', { name: '下载设置' });
-    await expect(dialog.getByRole('combobox', { name: '下载内容', exact: true })).toContainText('音视频');
+    await expect(dialog.getByRole('combobox', { name: /^下载内容/ })).not.toBeVisible();
     await expect(dialog.getByRole('combobox', { name: /^封装格式/ })).not.toBeVisible();
     await expect(dialog.getByRole('tab', { name: '附加文件', exact: true })).toHaveCount(0);
     await expect(dialog.getByRole('tab')).toHaveCount(3);
     await dialog.getByRole('tab', { name: '媒体', exact: true }).click();
     await expect(dialog.getByRole('combobox', { name: '下载范围', exact: true })).toHaveCount(0);
-    for (const name of ['保存封面', '保存字幕', '保存弹幕', '生成 NFO']) {
+    for (const name of ['下载封面', '下载字幕', '下载弹幕', '生成 NFO']) {
       await expect(dialog.getByRole('checkbox', { name, exact: true })).toBeVisible();
       await expect(dialog.getByRole('checkbox', { name, exact: true })).not.toBeChecked();
     }
     await page.screenshot({ path: testInfo.outputPath('download-attachments.png') });
+    await dialog.getByRole('checkbox', { name: '下载封面', exact: true }).check();
+    await dialog.getByRole('checkbox', { name: '下载字幕', exact: true }).check();
     await dialog.getByRole('checkbox', { name: '嵌入封面', exact: true }).check();
-    await dialog.getByRole('checkbox', { name: '嵌入字幕（SRT）', exact: true }).check();
+    await dialog.getByRole('checkbox', { name: '嵌入字幕', exact: true }).check();
     await expect(dialog.getByRole('combobox', { name: /^封装格式/ })).toContainText('MKV');
     await page.setViewportSize({ width: 900, height: 700 });
     await expect(dialog.getByRole('button', { name: '开始下载', exact: true })).toBeInViewport();
@@ -1701,10 +1707,10 @@ for (const theme of ['light', 'dark'] as const) {
     await page.screenshot({ path: testInfo.outputPath('download-media.png') });
     await dialog.getByRole('button', { name: '开始下载', exact: true }).click();
     await expect.poll(() => page.evaluate(() => (window as unknown as { __CLEAN_REQUEST__?: unknown }).__CLEAN_REQUEST__)).toMatchObject({
-      archive_mode: 'custom', archive_assets: { cover: false, subtitles: false, danmaku: false, nfo: false },
+      archive_mode: 'custom', archive_assets: { cover: true, subtitles: true, danmaku: false, nfo: false },
       output_extension: 'mkv', embed_cover: true, embed_subtitles: true,
     });
-    expect(await page.evaluate(() => (window as unknown as { __BDL_TEST_INVOKES__: string[] }).__BDL_TEST_INVOKES__.filter((name) => name === 'settings_update').length)).toBe(0);
+    expect(await page.evaluate(() => (window as unknown as { __BDL_TEST_INVOKES__: string[] }).__BDL_TEST_INVOKES__.filter((name) => name === 'settings_update').length)).toBe(1);
   });
 }
 
@@ -1730,15 +1736,16 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.locator('.settings-category')).toHaveCount(4);
     await expect(page.getByRole('button', { name: /附加文件 封面/ })).toHaveCount(0);
     await page.getByRole('button', { name: /媒体 画质/ }).click();
-    for (const name of ['保存封面', '保存字幕', '保存弹幕', '生成 NFO']) {
+    for (const name of ['下载封面', '下载字幕', '下载弹幕', '生成 NFO']) {
       await expect(page.getByRole('checkbox', { name, exact: true })).toBeVisible();
       await expect(page.getByRole('checkbox', { name, exact: true })).not.toBeChecked();
     }
-    await page.getByRole('checkbox', { name: '保存字幕', exact: true }).check();
+    await page.getByRole('checkbox', { name: '下载字幕', exact: true }).check();
     await page.screenshot({ path: testInfo.outputPath('mobile-attachments.png') });
     await expect(page.getByRole('combobox', { name: '封装格式', exact: true })).toContainText('MKV');
+    await page.getByRole('checkbox', { name: '下载封面', exact: true }).check();
     await expect(page.getByRole('checkbox', { name: '嵌入封面', exact: true })).toBeDisabled();
-    await expect(page.getByRole('checkbox', { name: '嵌入字幕（SRT）', exact: true })).toBeDisabled();
+    await expect(page.getByRole('checkbox', { name: '嵌入字幕', exact: true })).toBeDisabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('mobile-media.png') });
     await page.getByRole('button', { name: '返回设置', exact: true }).click();
@@ -1962,4 +1969,100 @@ test('ten thousand parsed rows stay virtual while selection covers the whole sou
     const children = el.querySelectorAll('.source-media-row');
     return children[children.length - 1].getBoundingClientRect().bottom >= bounds.bottom;
   })).toBe(true);
+});
+
+
+for (const [format, width, theme] of [['m4s', 1280, 'light'], ['mp3', 900, 'dark'], ['mp3', 375, 'light']] as const) {
+  test(`audio and sidecar options remember ${format} at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await installTauriMock(page, theme);
+    await page.addInitScript(() => {
+      const target = window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> }; __FORMAT_REQUEST__?: unknown };
+      const invoke = target.__TAURI_INTERNALS__.invoke;
+      target.__TAURI_INTERNALS__.invoke = async (command, args) => {
+        if (command === 'settings_get') {
+          const defaults = await invoke(command, args);
+          const saved = localStorage.getItem('fixture-download-settings');
+          return saved ? JSON.parse(saved) : defaults;
+        }
+        if (command === 'settings_update') {
+          localStorage.setItem('fixture-download-settings', JSON.stringify(args?.settings));
+          return args?.settings;
+        }
+        if (command === 'selection_create_tasks') target.__FORMAT_REQUEST__ = args?.request;
+        return invoke(command, args);
+      };
+    });
+    const openDownload = async () => {
+      await page.getByLabel('链接或 BV / AV').fill('BV1xx411c7mD');
+      await page.getByRole('button', { name: '开始解析' }).click();
+      await page.getByRole('button', { name: '选择 测试视频' }).click();
+      await page.getByRole('button', { name: '下载所选 (1)' }).click();
+    };
+    await page.goto('/');
+    await openDownload();
+    const dialog = page.getByRole('dialog', { name: '下载设置' });
+    await expect(dialog.getByRole('combobox', { name: /^下载内容/ })).not.toBeVisible();
+    await dialog.getByRole('tab', { name: '媒体', exact: true }).click();
+    const mode = dialog.getByRole('combobox', { name: /^下载内容/ });
+    await expect(mode).toContainText('音频+视频');
+    await expect(dialog.getByRole('combobox', { name: '字幕格式', exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole('combobox', { name: '弹幕格式', exact: true })).toHaveCount(0);
+    await dialog.getByRole('checkbox', { name: '下载字幕', exact: true }).check();
+    await dialog.getByRole('combobox', { name: '字幕格式', exact: true }).click();
+    await page.getByRole('option', { name: '转换为 ASS', exact: true }).click();
+    await dialog.getByRole('checkbox', { name: '嵌入字幕', exact: true }).check();
+    await expect(dialog.getByRole('combobox', { name: /^封装格式/ })).toContainText('MKV');
+    await dialog.getByRole('checkbox', { name: '下载弹幕', exact: true }).check();
+    await dialog.getByRole('combobox', { name: '弹幕格式', exact: true }).click();
+    await page.getByRole('option', { name: 'HTML（离线播放）', exact: true }).click();
+    await mode.click();
+    await page.getByRole('option', { name: '仅音频', exact: true }).click();
+    await expect(dialog.getByRole('combobox', { name: /^封装格式/ })).toHaveCount(0);
+    await expect(dialog.getByRole('checkbox', { name: '嵌入字幕', exact: true })).toHaveCount(0);
+    const audioFormat = dialog.getByRole('combobox', { name: /^音频输出/ });
+    await expect(audioFormat).toContainText('不转换（m4s）');
+    if (format === 'mp3') {
+      await audioFormat.click();
+      await page.getByRole('option', { name: '转为 MP3', exact: true }).click();
+    }
+    await page.screenshot({ path: testInfo.outputPath('audio-sidecars.png') });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await dialog.getByRole('button', { name: '开始下载', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __FORMAT_REQUEST__: unknown }).__FORMAT_REQUEST__)).toMatchObject({ media_mode: 'audio_only', output_extension: format, subtitle_format: 'ass', danmaku_format: 'html', embed_subtitles: false, embed_cover: false });
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('fixture-download-settings') || '{}'))).toMatchObject({ media_mode: 'audio_only', audio_output_format: format, subtitle_format: 'ass', danmaku_format: 'html' });
+    await page.reload();
+    await openDownload();
+    await expect(dialog.getByText('文件名预览：')).toContainText(`.${format}`);
+    await dialog.getByRole('tab', { name: '媒体', exact: true }).click();
+    await expect(mode).toContainText('仅音频');
+    await expect(audioFormat).toContainText(format === 'mp3' ? '转为 MP3' : '不转换（m4s）');
+    await expect(dialog.getByRole('combobox', { name: '字幕格式', exact: true })).toContainText('ASS');
+    await expect(dialog.getByRole('combobox', { name: '弹幕格式', exact: true })).toContainText('HTML');
+    await mode.click();
+    await page.getByRole('option', { name: '音频+视频', exact: true }).click();
+    await expect(dialog.getByRole('combobox', { name: /^封装格式/ })).toContainText('MKV');
+    await expect(dialog.getByRole('checkbox', { name: '嵌入字幕', exact: true })).toBeChecked();
+    await dialog.getByRole('checkbox', { name: '下载字幕', exact: true }).uncheck();
+    await expect(dialog.getByRole('combobox', { name: '字幕格式', exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole('checkbox', { name: '嵌入字幕', exact: true })).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('fixture-download-settings') || '{}').media_mode)).toBe('audio_video');
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    await page.getByRole('button', { name: '下载所选 (1)' }).click();
+    await dialog.getByRole('tab', { name: '媒体', exact: true }).click();
+    await expect(mode).toContainText('音频+视频');
+  });
+}
+
+test('offline HTML danmaku renders safe text and synchronizes seeking', async ({ page }) => {
+  const template = await readFile(new URL('../../../../crates/bdl-core/src/danmaku-viewer.html', import.meta.url), 'utf8');
+  const xml = '<i><d p="1,1,25,16777215">中文弹幕</d><d p="2,5,25,0">&lt;img src=x onerror=alert(1)&gt;</d></i>';
+  await page.setContent(template.replace('__BDL_XML__', JSON.stringify(xml).replaceAll('<', '\\u003c')));
+  await expect(page.locator('#status')).toHaveText('共 2 条弹幕');
+  await expect(page.locator('#rows')).toContainText('<img src=x onerror=alert(1)>');
+  await expect(page.locator('img')).toHaveCount(0);
+  await page.locator('#seek').evaluate((input: HTMLInputElement) => { input.value = '2'; input.dispatchEvent(new Event('input')); });
+  await expect(page.locator('#overlay')).toContainText('中文弹幕');
+  await expect(page.locator('#overlay')).toContainText('<img src=x onerror=alert(1)>');
+  await expect(page.locator('#overlay .comment').last()).toHaveCSS('color', 'rgb(0, 0, 0)');
 });

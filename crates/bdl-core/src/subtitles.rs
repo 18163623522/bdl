@@ -1,4 +1,56 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubtitleFormat {
+    #[default]
+    Srt,
+    Ass,
+}
+
+impl SubtitleFormat {
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Srt => "srt",
+            Self::Ass => "ass",
+        }
+    }
+}
+
+pub fn bilibili_json_to_ass(json: &str) -> Result<String, SubtitleError> {
+    // Share cue validation and blank-line normalization with the SRT converter.
+    let srt = bilibili_json_to_srt(json)?;
+    let mut ass = String::from(
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,2,30,30,40,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+    );
+    for cue in srt.trim_end().split("\n\n") {
+        let mut lines = cue.lines();
+        lines.next();
+        let (from, to) = lines.next().unwrap().split_once(" --> ").unwrap();
+        let timestamp = |value: &str| {
+            let (hms, millis) = value.split_once(',').unwrap();
+            let (hours, rest) = hms.split_once(':').unwrap();
+            format!(
+                "{}:{rest}.{:02}",
+                hours.parse::<u64>().unwrap(),
+                millis.parse::<u64>().unwrap() / 10
+            )
+        };
+        // Prevent downloaded text from becoming ASS override tags or line breaks.
+        let escape = |line: &str| {
+            line.replace('\\', "\\\u{2060}")
+                .replace('{', "｛")
+                .replace('}', "｝")
+        };
+        let content = lines.map(escape).collect::<Vec<_>>().join("\\N");
+        ass.push_str(&format!(
+            "Dialogue: 0,{},{},Default,,0,0,0,,{content}\n",
+            timestamp(from),
+            timestamp(to)
+        ));
+    }
+    Ok(ass)
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum SubtitleError {
@@ -78,6 +130,18 @@ fn timestamp(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ass_keeps_times_unicode_and_multiline_without_executing_override_tags() {
+        let ass = bilibili_json_to_ass(
+            r#"{"body":[{"from":0.38,"to":3601.002,"content":"中文\n{\\pos(1,2)}"}]}"#,
+        )
+        .unwrap();
+        assert!(ass.contains("[V4+ Styles]"));
+        assert!(ass.contains("Dialogue: 0,0:00:00.38,1:00:01.00,Default,,0,0,0,,中文\\N"));
+        assert!(!ass.contains("{\\pos(1,2)}"));
+        assert!(bilibili_json_to_ass(r#"{"body":[{"from":2,"to":1,"content":"a"}]}"#).is_err());
+    }
 
     #[test]
     fn converts_unicode_multiline_and_rounds_across_minute_boundary() {

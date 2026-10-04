@@ -47,7 +47,7 @@ impl<R: Runtime> MediaMuxBackendImpl for AndroidMediaMuxBackend<R> {
         }
         let format_name =
             output_format_name(&request.output_path).ok_or_else(|| BdlError::Platform {
-                message: "Android 内置 FFmpeg 当前支持 MP4 与 MKV 封装。".to_owned(),
+                message: "Android 内置 FFmpeg 当前支持 MP4、MKV 与 MP3。".to_owned(),
             })?;
         if request.video_path.is_none() && request.audio_path.is_none() {
             return Err(BdlError::Platform {
@@ -96,6 +96,7 @@ fn output_format_name(path: &Path) -> Option<&'static str> {
     {
         Some("mp4" | "m4v" | "mov") => Some("mp4"),
         Some("mkv") => Some("matroska"),
+        Some("mp3") => Some("mp3"),
         _ => None,
     }
 }

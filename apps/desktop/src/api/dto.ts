@@ -185,6 +185,8 @@ export interface DownloadTaskMediaSelection {
     embed_cover: boolean
     embed_subtitles: boolean
     archive_assets?: SettingsSnapshot['archive_assets'] | null
+    subtitle_format?: SettingsSnapshot['subtitle_format'] | null
+    danmaku_format?: SettingsSnapshot['danmaku_format'] | null
   } | null
 }
 
@@ -273,6 +275,10 @@ export interface SettingsSnapshot {
   archive_mode: ArchiveMode
   archive_assets: ArchiveAssetSelection
   output_extension: 'mp4' | 'mkv'
+  media_mode: DownloadMediaMode
+  audio_output_format: 'm4s' | 'mp3'
+  subtitle_format: 'srt' | 'ass'
+  danmaku_format: 'xml' | 'html'
   duplicate_naming_strategy: DuplicateNamingStrategy
   audio_quality: string
   codec: VideoCodecPreference

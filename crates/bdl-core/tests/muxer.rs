@@ -119,6 +119,169 @@ async fn media_muxer_supports_audio_only_output() {
 }
 
 #[tokio::test]
+async fn mp3_output_encodes_audio_instead_of_copying_aac() {
+    let dir = temp_case_dir("mp3").await;
+    let record_path = dir.join("args.txt");
+    let ffmpeg = fake_ffmpeg(&dir, &record_path, 0, "").await;
+    let mut request = mux_request(dir);
+    request.video_path = None;
+    request.output_path.set_extension("mp3");
+    MediaMuxer::with_ffmpeg_path(ffmpeg)
+        .mux(&request)
+        .await
+        .unwrap();
+    let args = tokio::fs::read_to_string(record_path).await.unwrap();
+    assert!(args.contains("libmp3lame"));
+    assert!(args.contains("0:a:0"));
+    assert!(!args.contains("copy"));
+}
+
+#[tokio::test]
+#[ignore = "requires local FFmpeg and ffprobe"]
+async fn real_mp3_output_has_mp3_codec_and_audio_only() {
+    let dir = temp_case_dir("real-mp3").await;
+    let input = dir.join("original.m4s");
+    let mut generator = std::process::Command::new("ffmpeg");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        generator.creation_flags(0x08000000);
+    }
+    let generated = generator
+        .args([
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=3",
+            "-c:a",
+            "aac",
+            "-movflags",
+            "frag_keyframe+empty_moov",
+            "-f",
+            "mp4",
+        ])
+        .arg(&input)
+        .output()
+        .unwrap();
+    assert!(generated.status.success());
+    let request = MuxRequest {
+        video_path: None,
+        audio_path: Some(input),
+        output_path: dir.join("converted.mp3"),
+        cover_path: None,
+        subtitle_paths: Vec::new(),
+    };
+    MediaMuxer::new(MediaMuxerConfig::default())
+        .unwrap()
+        .mux(&request)
+        .await
+        .unwrap();
+    let mut probe = std::process::Command::new("ffprobe");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        probe.creation_flags(0x08000000);
+    }
+    let output = probe
+        .args([
+            "-v",
+            "error",
+            "-show_streams",
+            "-show_format",
+            "-of",
+            "json",
+        ])
+        .arg(&request.output_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let data: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(data["format"]["format_name"], "mp3");
+    assert_eq!(data["streams"].as_array().unwrap().len(), 1);
+    assert_eq!(data["streams"][0]["codec_name"], "mp3");
+    let duration: f64 = data["format"]["duration"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!((2.9..3.2).contains(&duration));
+    println!(
+        "Verified MP3 codec and duration: {}",
+        request.output_path.display()
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires FFmpeg and BDL_REAL_MUX_VIDEO pointing to a local video"]
+async fn real_ass_subtitle_embeds_and_roundtrips_chinese_cues() {
+    let dir = temp_case_dir("real-ass").await;
+    let media = PathBuf::from(std::env::var_os("BDL_REAL_MUX_VIDEO").unwrap());
+    let subtitle = dir.join("subtitle.ass");
+    tokio::fs::write(
+        &subtitle,
+        bdl_core::subtitles::bilibili_json_to_ass(
+            r#"{"body":[{"from":0.38,"to":2.22,"content":"中文第一行\n第二行"}]}"#,
+        )
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+    let request = MuxRequest {
+        video_path: Some(media.clone()),
+        audio_path: Some(media),
+        output_path: dir.join("verified-ass.mkv"),
+        cover_path: None,
+        subtitle_paths: vec![subtitle],
+    };
+    MediaMuxer::new(MediaMuxerConfig::default())
+        .unwrap()
+        .mux(&request)
+        .await
+        .unwrap();
+    let mut probe = std::process::Command::new("ffprobe");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        probe.creation_flags(0x08000000);
+    }
+    let output = probe
+        .args(["-v", "error", "-show_streams", "-of", "json"])
+        .arg(&request.output_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let data: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        data["streams"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|stream| stream["codec_name"] == "ass")
+    );
+    let mut extract = std::process::Command::new("ffmpeg");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        extract.creation_flags(0x08000000);
+    }
+    let srt = extract
+        .args(["-v", "error", "-i"])
+        .arg(&request.output_path)
+        .args(["-map", "0:s:0", "-f", "srt", "-"])
+        .output()
+        .unwrap();
+    assert!(srt.status.success());
+    let text = String::from_utf8_lossy(&srt.stdout);
+    assert!(text.contains("00:00:00,380 --> 00:00:02,220"));
+    assert!(text.contains("中文第一行\n第二行"));
+    println!(
+        "Verified embedded ASS and Chinese cue roundtrip: {}",
+        request.output_path.display()
+    );
+}
+
+#[tokio::test]
 async fn media_muxer_returns_exit_code_and_stderr_when_ffmpeg_fails() {
     let dir = temp_case_dir("failed").await;
     let record_path = dir.join("args.txt");

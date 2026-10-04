@@ -46,6 +46,13 @@ final class FfmpegMuxer {
   private FfmpegMuxer() {}
 
   static void mux(String videoPath, String audioPath, String outputPath, String formatName) {
+    if ("mp3".equals(formatName)) {
+      if (videoPath != null || audioPath == null) {
+        throw new IllegalArgumentException("MP3 输出需要仅音频输入");
+      }
+      transcodeMp3(audioPath, outputPath);
+      return;
+    }
     if (videoPath == null && audioPath == null) {
       throw new IllegalArgumentException("缺少视频或音频输入");
     }
@@ -129,6 +136,28 @@ final class FfmpegMuxer {
       }
       closeInput(video);
       closeInput(audio);
+    }
+  }
+
+  private static void transcodeMp3(String input, String output) {
+    try (org.bytedeco.javacv.FFmpegFrameGrabber grabber = new org.bytedeco.javacv.FFmpegFrameGrabber(input)) {
+      grabber.start();
+      int channels = Math.min(2, Math.max(1, grabber.getAudioChannels()));
+      try (org.bytedeco.javacv.FFmpegFrameRecorder recorder = new org.bytedeco.javacv.FFmpegFrameRecorder(output, channels)) {
+        recorder.setFormat("mp3");
+        recorder.setAudioCodecName("libmp3lame");
+        recorder.setAudioQuality(2);
+        recorder.setSampleRate(44100);
+        recorder.start();
+        org.bytedeco.javacv.Frame frame;
+        while ((frame = grabber.grabSamples()) != null) {
+          recorder.recordSamples(frame.sampleRate, frame.audioChannels, frame.samples);
+        }
+        recorder.stop();
+      }
+      grabber.stop();
+    } catch (Exception error) {
+      throw new IllegalStateException("MP3 转换失败：" + error.getMessage(), error);
     }
   }
 

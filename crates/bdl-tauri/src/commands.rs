@@ -259,6 +259,8 @@ pub struct SelectionCreateTasksRequest {
     pub document_tree_output: Option<DocumentTreeDirectory>,
     pub archive_mode: Option<String>,
     pub output_extension: Option<String>,
+    pub subtitle_format: Option<bdl_core::subtitles::SubtitleFormat>,
+    pub danmaku_format: Option<bdl_core::danmaku::DanmakuFormat>,
     pub naming_template: Option<String>,
     pub duplicate_naming_strategy: Option<bdl_core::naming::DuplicateNamingStrategy>,
     pub archive_assets: Option<bdl_core::planner::ArchiveAssetSelection>,
@@ -688,18 +690,42 @@ fn download_options_from_request(
     )?;
 
     let mut options = DownloadOptions::new(output_dir).with_archive_mode(archive_mode);
+    let media_mode = request
+        .media_mode
+        .as_deref()
+        .map(DownloadMediaMode::parse)
+        .transpose()?
+        .unwrap_or(settings.media_mode);
+    let audio_only = media_mode == DownloadMediaMode::AudioOnly;
     let output_extension = request
         .output_extension
         .as_deref()
         .map(ToOwned::to_owned)
-        .unwrap_or_else(|| settings.output_extension.clone());
+        .unwrap_or_else(|| {
+            if audio_only {
+                settings.audio_output_format.clone()
+            } else {
+                settings.output_extension.clone()
+            }
+        });
+    if (audio_only && !matches!(output_extension.as_str(), "m4s" | "mp3"))
+        || (!audio_only && !matches!(output_extension.as_str(), "mp4" | "mkv"))
+    {
+        return Err(BdlError::Planning {
+            message: "仅音频请选择 m4s 或 MP3；包含视频请选择 MP4 或 MKV。".to_owned(),
+        }
+        .into());
+    }
     let processing = bdl_core::queue::TaskProcessingOptions {
-        retain_raw_streams: request
-            .retain_raw_streams
-            .unwrap_or(settings.retain_raw_streams),
-        embed_cover: request.embed_cover.unwrap_or(settings.embed_cover),
-        embed_subtitles: request.embed_subtitles.unwrap_or(settings.embed_subtitles),
+        retain_raw_streams: !(audio_only && output_extension == "m4s")
+            && request
+                .retain_raw_streams
+                .unwrap_or(settings.retain_raw_streams),
+        embed_cover: !audio_only && request.embed_cover.unwrap_or(settings.embed_cover),
+        embed_subtitles: !audio_only && request.embed_subtitles.unwrap_or(settings.embed_subtitles),
         archive_assets: None,
+        subtitle_format: Some(request.subtitle_format.unwrap_or(settings.subtitle_format)),
+        danmaku_format: Some(request.danmaku_format.unwrap_or(settings.danmaku_format)),
     };
     options.processing = Some(processing);
     validate_embedding_container(
@@ -749,7 +775,11 @@ fn apply_media_options(
     overrides: MediaOptionOverrides<'_>,
     settings: &SettingsSnapshot,
 ) -> CommandResult<()> {
-    options.media_mode = DownloadMediaMode::parse(overrides.media_mode.unwrap_or("audio_video"))?;
+    options.media_mode = overrides
+        .media_mode
+        .map(DownloadMediaMode::parse)
+        .transpose()?
+        .unwrap_or(settings.media_mode);
     options.video_quality =
         StreamPreference::parse_video(overrides.quality.unwrap_or(&settings.quality))?;
     options.audio_quality = StreamPreference::parse(
@@ -1829,6 +1859,7 @@ async fn run_download_task_inner(
     )?;
 
     let latest = state.task_snapshot(&task.id)?;
+    crate::media_finalize::prepare_sidecars(&latest).await?;
     let attachments = select_mux_attachments(
         &latest,
         runtime_options.embed_cover,
@@ -1868,6 +1899,7 @@ async fn run_download_task_inner(
     }
 
     finalize_archive_assets(app, state, &task).await?;
+    crate::media_finalize::cleanup_converted_sources(&latest).await?;
     export_task_files(app, state, &task.id).await?;
 
     let completed = state.update_task_status(&task.id, TaskStatus::Completed)?;
@@ -1963,26 +1995,19 @@ async fn export_task_files(
 
     let exported_output = PathBuf::from(&result.relative_path);
     for resource in &updated.resources {
-        if resource.status != ResourceStatus::Completed || !resource.target_path.is_file() {
+        let source_path = crate::media_finalize::sidecar_output_path(&updated, resource);
+        if resource.status != ResourceStatus::Completed || !source_path.is_file() {
             continue;
         }
-        let resource_relative = retarget_task_path(
-            &resource.target_path,
-            &updated.output_path,
-            &exported_output,
-        )?;
+        let resource_relative =
+            retarget_task_path(&source_path, &updated.output_path, &exported_output)?;
         let resource_target = DownloadExportTarget::DocumentTree {
             tree_uri: tree_uri.clone(),
             relative_path: portable_relative_path(&resource_relative)?,
             duplicate_naming_strategy: DuplicateNamingStrategy::OverwriteExisting,
             document_uri: None,
         };
-        export_file_with_storage(
-            state.mobile_storage(),
-            resource.target_path.clone(),
-            resource_target,
-        )
-        .await?;
+        export_file_with_storage(state.mobile_storage(), source_path, resource_target).await?;
     }
 
     emit_queue_log(
@@ -2078,6 +2103,9 @@ async fn cleanup_raw_streams(
             DownloadResourceIntent::Video | DownloadResourceIntent::Audio
         )
     }) {
+        if resource.target_path == task.output_path {
+            continue;
+        }
         match fs::remove_file(&resource.target_path).await {
             Ok(()) => {}
             Err(error) if error.kind() == ErrorKind::NotFound => {}
@@ -2100,6 +2128,7 @@ async fn finalize_archive_assets(
     task: &DownloadTask,
 ) -> CommandResult<()> {
     let latest = state.task_snapshot(&task.id)?;
+    crate::media_finalize::prepare_sidecars(&latest).await?;
     for resource in latest
         .resources
         .iter()
@@ -2183,6 +2212,8 @@ fn task_mux_label(task: &DownloadTask) -> &'static str {
     ) {
         (true, true) => "合并音视频",
         (true, false) => "封装视频",
+        (false, true) if task.media_selection.container == "m4s" => "保存原始音频（m4s）",
+        (false, true) if task.media_selection.container == "mp3" => "转换音频为 MP3",
         (false, true) => "封装音频",
         (false, false) => "封装媒体",
     }
@@ -2368,6 +2399,35 @@ mod tests {
                 && legacy_runtime.embed_subtitles
         );
         assert!(settings.embed_cover);
+    }
+
+    #[test]
+    fn audio_outputs_use_saved_choices_and_disable_video_embedding() {
+        let settings = super::SettingsSnapshot {
+            media_mode: bdl_core::planner::DownloadMediaMode::AudioOnly,
+            audio_output_format: "mp3".to_owned(),
+            output_extension: "mkv".to_owned(),
+            embed_cover: true,
+            embed_subtitles: true,
+            ..Default::default()
+        };
+        let mut request: super::SelectionCreateTasksRequest =
+            serde_json::from_value(serde_json::json!({"source_id":"test", "part_ids":[]})).unwrap();
+        let options = super::download_options_from_request(&request, &settings, None).unwrap();
+        assert_eq!(
+            options.media_mode,
+            bdl_core::planner::DownloadMediaMode::AudioOnly
+        );
+        assert_eq!(options.output_extension, "mp3");
+        assert!(!options.processing.unwrap().embed_cover);
+        assert!(!options.processing.unwrap().embed_subtitles);
+        request.output_extension = Some("m4s".to_owned());
+        request.retain_raw_streams = Some(true);
+        let options = super::download_options_from_request(&request, &settings, None).unwrap();
+        assert_eq!(options.output_extension, "m4s");
+        assert!(!options.processing.unwrap().retain_raw_streams);
+        request.output_extension = Some("mp4".to_owned());
+        assert!(super::download_options_from_request(&request, &settings, None).is_err());
     }
 
     #[test]

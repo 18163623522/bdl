@@ -81,6 +81,10 @@ const defaultSettings = (): SettingsSnapshot => ({
     nfo: true,
   },
   output_extension: 'mp4',
+  media_mode: 'audio_video',
+  audio_output_format: 'm4s',
+  subtitle_format: 'srt',
+  danmaku_format: 'xml',
   duplicate_naming_strategy: 'skip_existing',
   audio_quality: 'best',
   codec: 'auto',
@@ -141,6 +145,7 @@ interface EnvironmentCheckOverrides {
 }
 
 type AppPreferences = Pick<SettingsSnapshot, 'usage_notice_acknowledged' | 'auto_check_updates' | 'theme_preference'>
+type DownloadPreferences = Pick<SettingsSnapshot, 'media_mode' | 'audio_output_format' | 'subtitle_format' | 'danmaku_format' | 'archive_mode' | 'archive_assets' | 'embed_cover' | 'embed_subtitles' | 'output_extension' | 'retain_raw_streams'>
 const settingsWrites = new WeakMap<object, Promise<unknown>>()
 const enqueueSettingsWrite = <T>(store: object, write: () => Promise<T>): Promise<T> => {
   const pending = (settingsWrites.get(store) ?? Promise.resolve()).then(write)
@@ -236,7 +241,7 @@ export const useSettingsStore = defineStore('settings', {
         this.loading = false
       }
     },
-    saveAppPreferences(patch: Partial<AppPreferences>): Promise<boolean> {
+    saveAppPreferences(patch: Partial<AppPreferences | DownloadPreferences>): Promise<boolean> {
       return enqueueSettingsWrite(this, async () => {
         await this.ensureLoaded()
         if (!this.loaded) {
@@ -634,6 +639,10 @@ const normalizeSettings = (saved: SettingsSnapshot): SettingsSnapshot => {
     archive_mode: archiveModes.has(settings.archive_mode) ? settings.archive_mode : 'fast',
     archive_assets: normalizeArchiveAssets(settings.archive_assets),
     output_extension: outputExtensions.has(settings.output_extension) ? settings.output_extension : 'mp4',
+    media_mode: ['audio_video', 'video_only', 'audio_only'].includes(settings.media_mode) ? settings.media_mode : 'audio_video',
+    audio_output_format: settings.audio_output_format === 'mp3' ? 'mp3' : 'm4s',
+    subtitle_format: settings.subtitle_format === 'ass' ? 'ass' : 'srt',
+    danmaku_format: settings.danmaku_format === 'html' ? 'html' : 'xml',
     duplicate_naming_strategy: duplicateNamingStrategies.has(settings.duplicate_naming_strategy)
       ? settings.duplicate_naming_strategy
       : 'skip_existing',

@@ -271,6 +271,8 @@ pub struct TaskProcessingOptions {
     pub embed_subtitles: bool,
     /// Explicit standalone files to retain; absent for tasks created by older versions.
     pub archive_assets: Option<crate::planner::ArchiveAssetSelection>,
+    pub subtitle_format: Option<crate::subtitles::SubtitleFormat>,
+    pub danmaku_format: Option<crate::danmaku::DanmakuFormat>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

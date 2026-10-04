@@ -1,6 +1,6 @@
 use bdl_core::muxer::{supports_cover_embedding, supports_subtitle_embedding};
 use bdl_core::queue::{DownloadResource, DownloadResourceIntent, DownloadTask, ResourceStatus};
-use bdl_core::subtitles::bilibili_json_to_srt;
+use bdl_core::subtitles::{SubtitleFormat, bilibili_json_to_ass, bilibili_json_to_srt};
 use bdl_core::{BdlError, BdlResult};
 use std::path::PathBuf;
 use tokio::fs;
@@ -54,7 +54,12 @@ pub(crate) async fn select_mux_attachments(
                 .push("跳过字幕嵌入：没有已下载的字幕文件。".to_owned());
         }
         for resource in resources {
-            let path = &resource.target_path;
+            let converted_path = sidecar_output_path(task, resource);
+            let path = if converted_path.is_file() {
+                &converted_path
+            } else {
+                &resource.target_path
+            };
             if supports_subtitle_embedding(&task.output_path, path) {
                 selection.subtitle_paths.push(path.clone());
             } else if path
@@ -78,6 +83,84 @@ pub(crate) async fn select_mux_attachments(
     }
 
     selection
+}
+
+pub(crate) fn sidecar_output_path(task: &DownloadTask, resource: &DownloadResource) -> PathBuf {
+    let processing = task.media_selection.processing.unwrap_or_default();
+    let extension = match resource.intent {
+        DownloadResourceIntent::Subtitle => {
+            processing.subtitle_format.map(|format| format.extension())
+        }
+        DownloadResourceIntent::Danmaku => {
+            processing.danmaku_format.map(|format| format.extension())
+        }
+        _ => None,
+    };
+    extension.map_or_else(
+        || resource.target_path.clone(),
+        |ext| resource.target_path.with_extension(ext),
+    )
+}
+
+pub(crate) async fn prepare_sidecars(task: &DownloadTask) -> BdlResult<()> {
+    for resource in task
+        .resources
+        .iter()
+        .filter(|resource| resource.status == ResourceStatus::Completed)
+    {
+        let output = sidecar_output_path(task, resource);
+        let source = &resource.target_path;
+        if output == *source || (!source.is_file() && output.is_file()) || !source.is_file() {
+            continue;
+        }
+        let raw = fs::read_to_string(source).await?;
+        let content = match resource.intent {
+            DownloadResourceIntent::Subtitle
+                if source.extension().is_some_and(|ext| ext == "json") =>
+            {
+                let converted = match task
+                    .media_selection
+                    .processing
+                    .and_then(|options| options.subtitle_format)
+                    .unwrap_or_default()
+                {
+                    SubtitleFormat::Srt => bilibili_json_to_srt(&raw),
+                    SubtitleFormat::Ass => bilibili_json_to_ass(&raw),
+                };
+                converted.map_err(|error| BdlError::Planning {
+                    message: format!("字幕转换失败：{error}"),
+                })?
+            }
+            DownloadResourceIntent::Danmaku
+                if source.extension().is_some_and(|ext| ext == "xml") =>
+            {
+                bdl_core::danmaku::xml_to_html(&raw)?
+            }
+            _ => {
+                return Err(BdlError::Planning {
+                    message: format!("无法将 {} 转换为所选格式。", source.display()),
+                });
+            }
+        };
+        fs::write(&output, content).await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn cleanup_converted_sources(task: &DownloadTask) -> BdlResult<()> {
+    if !fs::metadata(&task.output_path)
+        .await
+        .is_ok_and(|meta| meta.is_file() && meta.len() > 0)
+    {
+        return Ok(());
+    }
+    for resource in &task.resources {
+        let output = sidecar_output_path(task, resource);
+        if output != resource.target_path && output.is_file() && resource.target_path.is_file() {
+            fs::remove_file(&resource.target_path).await?;
+        }
+    }
+    Ok(())
 }
 
 async fn convert_subtitle(
@@ -111,7 +194,8 @@ pub(crate) async fn cleanup_embedded_sources(
     let mut warnings = Vec::new();
     for resource in &task.resources {
         let path = &resource.target_path;
-        let converted = path.with_extension("srt");
+        let converted = sidecar_output_path(task, resource);
+        let legacy_srt = path.with_extension("srt");
         let paths = match resource.intent {
             DownloadResourceIntent::Cover
                 if !keep.cover && selection.cover_path.as_ref() == Some(path) =>
@@ -120,13 +204,14 @@ pub(crate) async fn cleanup_embedded_sources(
             }
             DownloadResourceIntent::Subtitle
                 if !keep.subtitles
-                    && selection
-                        .subtitle_paths
-                        .iter()
-                        .any(|subtitle| subtitle == path || subtitle == &converted) =>
+                    && selection.subtitle_paths.iter().any(|subtitle| {
+                        subtitle == path || subtitle == &converted || subtitle == &legacy_srt
+                    }) =>
             {
                 if selection.subtitle_paths.contains(&converted) && path != &converted {
                     vec![path, &converted]
+                } else if selection.subtitle_paths.contains(&legacy_srt) && path != &legacy_srt {
+                    vec![path, &legacy_srt]
                 } else {
                     vec![path]
                 }
@@ -134,10 +219,10 @@ pub(crate) async fn cleanup_embedded_sources(
             _ => continue,
         };
         for path in paths {
-            if let Err(error) = fs::remove_file(path).await {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    warnings.push(format!("嵌入成功，清理临时素材失败：{error}"));
-                }
+            if let Err(error) = fs::remove_file(path).await
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                warnings.push(format!("嵌入成功，清理临时素材失败：{error}"));
             }
         }
     }
@@ -359,6 +444,63 @@ mod tests {
             scheduled_at: None,
             speed_limit_bytes_per_second: None,
         }
+    }
+
+    #[tokio::test]
+    async fn selected_formats_survive_reload_convert_embed_and_export_without_raw_sidecars() {
+        let dir = std::env::temp_dir().join(format!("bdl-sidecars-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let mut subtitle = resource(DownloadResourceIntent::Subtitle);
+        subtitle.target_path = dir.join("字幕.json");
+        subtitle.status = ResourceStatus::Completed;
+        let mut danmaku = resource(DownloadResourceIntent::Danmaku);
+        danmaku.target_path = dir.join("弹幕.xml");
+        danmaku.status = ResourceStatus::Completed;
+        tokio::fs::write(
+            &subtitle.target_path,
+            r#"{"body":[{"from":1,"to":2,"content":"中文"}]}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            &danmaku.target_path,
+            "<i><d p=\"1,1,25,16777215\">弹幕</d></i>",
+        )
+        .await
+        .unwrap();
+        let mut task = task(vec![subtitle.clone(), danmaku.clone()]);
+        task.output_path = dir.join("output.mkv");
+        task.media_selection.processing = Some(bdl_core::queue::TaskProcessingOptions {
+            subtitle_format: Some(bdl_core::subtitles::SubtitleFormat::Ass),
+            danmaku_format: Some(bdl_core::danmaku::DanmakuFormat::Html),
+            ..Default::default()
+        });
+        let restored: DownloadTask =
+            serde_json::from_str(&serde_json::to_string(&task).unwrap()).unwrap();
+        super::prepare_sidecars(&restored).await.unwrap();
+        let selected = select_mux_attachments(&restored, false, true).await;
+        assert_eq!(
+            selected.subtitle_paths,
+            vec![subtitle.target_path.with_extension("ass")]
+        );
+        assert!(selected.warnings.is_empty());
+        assert_eq!(
+            super::sidecar_output_path(&restored, &danmaku),
+            danmaku.target_path.with_extension("html")
+        );
+        super::cleanup_converted_sources(&restored).await.unwrap();
+        assert!(subtitle.target_path.exists());
+        tokio::fs::write(&restored.output_path, "completed media")
+            .await
+            .unwrap();
+        super::cleanup_converted_sources(&restored).await.unwrap();
+        assert!(!subtitle.target_path.exists());
+        assert!(!danmaku.target_path.exists());
+        // Recovery keeps the chosen files even after temporary JSON/XML are gone.
+        super::prepare_sidecars(&restored).await.unwrap();
+        assert!(subtitle.target_path.with_extension("ass").exists());
+        assert!(danmaku.target_path.with_extension("html").exists());
+        tokio::fs::remove_dir_all(dir).await.unwrap();
     }
 
     fn resource(intent: DownloadResourceIntent) -> DownloadResource {

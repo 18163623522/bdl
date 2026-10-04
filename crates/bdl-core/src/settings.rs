@@ -72,6 +72,10 @@ pub struct AppSettings {
     pub archive_mode: String,
     pub archive_assets: ArchiveAssetSelection,
     pub output_extension: String,
+    pub media_mode: crate::planner::DownloadMediaMode,
+    pub audio_output_format: String,
+    pub subtitle_format: crate::subtitles::SubtitleFormat,
+    pub danmaku_format: crate::danmaku::DanmakuFormat,
     pub duplicate_naming_strategy: DuplicateNamingStrategy,
     pub audio_quality: String,
     pub codec: String,
@@ -108,6 +112,10 @@ impl Default for AppSettings {
             archive_mode: "fast".to_owned(),
             archive_assets: ArchiveAssetSelection::all(),
             output_extension: "mp4".to_owned(),
+            media_mode: crate::planner::DownloadMediaMode::default(),
+            audio_output_format: "m4s".to_owned(),
+            subtitle_format: crate::subtitles::SubtitleFormat::default(),
+            danmaku_format: crate::danmaku::DanmakuFormat::default(),
             duplicate_naming_strategy: DuplicateNamingStrategy::default(),
             audio_quality: "best".to_owned(),
             codec: "auto".to_owned(),
@@ -184,6 +192,11 @@ impl AppSettings {
         validate_naming_presets(&self.naming_presets)?;
         validate_archive_mode(&self.archive_mode)?;
         validate_output_extension(&self.output_extension)?;
+        if !matches!(self.audio_output_format.as_str(), "m4s" | "mp3") {
+            return Err(crate::error::BdlError::Planning {
+                message: "音频输出格式仅支持 m4s 或 MP3。".to_owned(),
+            });
+        }
         validate_embedding_container(
             &self.output_extension,
             self.embed_cover,
