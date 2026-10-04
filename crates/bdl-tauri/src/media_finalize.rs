@@ -1,5 +1,6 @@
 use bdl_core::muxer::{supports_cover_embedding, supports_subtitle_embedding};
 use bdl_core::queue::{DownloadResource, DownloadResourceIntent, DownloadTask, ResourceStatus};
+use bdl_core::subtitles::bilibili_json_to_srt;
 use bdl_core::{BdlError, BdlResult};
 use std::path::PathBuf;
 use tokio::fs;
@@ -10,7 +11,7 @@ pub(crate) struct MuxAttachmentSelection {
     pub(crate) warnings: Vec<String>,
 }
 
-pub(crate) fn select_mux_attachments(
+pub(crate) async fn select_mux_attachments(
     task: &DownloadTask,
     embed_cover: bool,
     embed_subtitles: bool,
@@ -38,22 +39,109 @@ pub(crate) fn select_mux_attachments(
     }
 
     if embed_subtitles && task_has_resource_intent(task, DownloadResourceIntent::Subtitle) {
-        match completed_resource_by_intent(task, DownloadResourceIntent::Subtitle) {
-            Some(resource)
-                if supports_subtitle_embedding(&task.output_path, &resource.target_path) =>
+        let resources = task
+            .resources
+            .iter()
+            .filter(|resource| {
+                resource.intent == DownloadResourceIntent::Subtitle
+                    && resource.status == ResourceStatus::Completed
+                    && resource.target_path.is_file()
+            })
+            .collect::<Vec<_>>();
+        if resources.is_empty() {
+            selection
+                .warnings
+                .push("跳过字幕嵌入：没有已下载的字幕文件。".to_owned());
+        }
+        for resource in resources {
+            let path = &resource.target_path;
+            if supports_subtitle_embedding(&task.output_path, path) {
+                selection.subtitle_paths.push(path.clone());
+            } else if path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+                && supports_subtitle_embedding(&task.output_path, &path.with_extension("srt"))
             {
-                selection.subtitle_paths.push(resource.target_path.clone());
+                match convert_subtitle(path).await {
+                    Ok(srt_path) => selection.subtitle_paths.push(srt_path),
+                    Err(error) => selection
+                        .warnings
+                        .push(format!("跳过字幕嵌入：JSON 转 SRT 失败：{error}")),
+                }
+            } else {
+                selection
+                    .warnings
+                    .push("跳过字幕嵌入：当前字幕格式或封装格式不支持。".to_owned());
             }
-            Some(_) => selection
-                .warnings
-                .push("跳过字幕嵌入：当前字幕格式或封装格式不支持。".to_owned()),
-            None => selection
-                .warnings
-                .push("跳过字幕嵌入：没有已下载的字幕文件。".to_owned()),
         }
     }
 
     selection
+}
+
+async fn convert_subtitle(
+    path: &std::path::Path,
+) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+    let json = fs::read_to_string(path).await?;
+    let srt = bilibili_json_to_srt(&json)?;
+    let output = path.with_extension("srt");
+    fs::write(&output, srt).await?;
+    Ok(output)
+}
+
+pub(crate) async fn cleanup_embedded_sources(
+    task: &DownloadTask,
+    selection: &MuxAttachmentSelection,
+) -> Vec<String> {
+    let Some(keep) = task
+        .media_selection
+        .processing
+        .and_then(|options| options.archive_assets)
+    else {
+        return Vec::new();
+    };
+    // Only remove temporary embedding sources after a nonempty final file exists.
+    if !fs::metadata(&task.output_path)
+        .await
+        .is_ok_and(|meta| meta.is_file() && meta.len() > 0)
+    {
+        return Vec::new();
+    }
+    let mut warnings = Vec::new();
+    for resource in &task.resources {
+        let path = &resource.target_path;
+        let converted = path.with_extension("srt");
+        let paths = match resource.intent {
+            DownloadResourceIntent::Cover
+                if !keep.cover && selection.cover_path.as_ref() == Some(path) =>
+            {
+                vec![path]
+            }
+            DownloadResourceIntent::Subtitle
+                if !keep.subtitles
+                    && selection
+                        .subtitle_paths
+                        .iter()
+                        .any(|subtitle| subtitle == path || subtitle == &converted) =>
+            {
+                if selection.subtitle_paths.contains(&converted) && path != &converted {
+                    vec![path, &converted]
+                } else {
+                    vec![path]
+                }
+            }
+            _ => continue,
+        };
+        for path in paths {
+            if let Err(error) = fs::remove_file(path).await {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    warnings.push(format!("嵌入成功，清理临时素材失败：{error}"));
+                }
+            }
+        }
+    }
+    warnings
 }
 
 pub(crate) fn completed_resource_by_intent(
@@ -128,20 +216,133 @@ mod tests {
         assert!(nfo.contains("video:&quot;source&quot;"));
     }
 
-    #[test]
-    fn requested_but_unavailable_attachments_produce_specific_warnings() {
+    #[tokio::test]
+    async fn requested_but_unavailable_attachments_produce_specific_warnings() {
         let resources = vec![
             resource(DownloadResourceIntent::Cover),
             resource(DownloadResourceIntent::Subtitle),
         ];
 
-        let selection = select_mux_attachments(&task(resources), true, true);
+        let selection = select_mux_attachments(&task(resources), true, true).await;
 
         assert_eq!(selection.warnings.len(), 2);
         assert!(selection.warnings[0].contains("封面"));
         assert!(selection.warnings[1].contains("字幕"));
         assert!(selection.cover_path.is_none());
         assert!(selection.subtitle_paths.is_empty());
+    }
+
+    #[tokio::test]
+    async fn mkv_selects_cover_and_converts_json_without_changing_downloaded_payload() {
+        let dir = std::env::temp_dir().join(format!("bdl-attachments-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let json = r#"{"body":[{"from":0.38,"to":6.22,"content":"测试字幕"}]}"#;
+        let mut cover = resource(DownloadResourceIntent::Cover);
+        cover.target_path = dir.join("image.jpg");
+        cover.status = ResourceStatus::Completed;
+        tokio::fs::write(&cover.target_path, b"fixture image")
+            .await
+            .unwrap();
+        let mut subtitle = resource(DownloadResourceIntent::Subtitle);
+        subtitle.target_path = dir.join("download.subtitle.json");
+        subtitle.status = ResourceStatus::Completed;
+        tokio::fs::write(&subtitle.target_path, json).await.unwrap();
+        let mut task = task(vec![cover.clone(), subtitle.clone()]);
+        task.output_path = dir.join("output.mkv");
+
+        let disabled = select_mux_attachments(&task, false, false).await;
+        assert!(disabled.cover_path.is_none());
+        assert!(disabled.subtitle_paths.is_empty());
+        assert!(!subtitle.target_path.with_extension("srt").exists());
+
+        let selection = select_mux_attachments(&task, true, true).await;
+        assert!(selection.warnings.is_empty());
+        assert_eq!(selection.cover_path, Some(cover.target_path));
+        assert_eq!(
+            selection.subtitle_paths,
+            vec![subtitle.target_path.with_extension("srt")]
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(&selection.subtitle_paths[0])
+                .await
+                .unwrap(),
+            "1\n00:00:00,380 --> 00:00:06,220\n测试字幕\n\n"
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(&subtitle.target_path)
+                .await
+                .unwrap(),
+            json
+        );
+
+        // A stale converted sidecar must not hide a malformed current payload.
+        tokio::fs::write(&subtitle.target_path, "broken json")
+            .await
+            .unwrap();
+        let broken = select_mux_attachments(&task, true, true).await;
+        assert!(broken.subtitle_paths.is_empty());
+        assert!(broken.cover_path.is_some());
+        assert!(broken.warnings[0].contains("JSON 转 SRT 失败"));
+        tokio::fs::remove_dir_all(dir).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn embedded_source_cleanup_respects_explicit_sidecars_and_legacy_tasks() {
+        use bdl_core::{planner::ArchiveAssetSelection, queue::TaskProcessingOptions};
+        let dir =
+            std::env::temp_dir().join(format!("bdl-embedding-cleanup-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let mut cover = resource(DownloadResourceIntent::Cover);
+        cover.target_path = dir.join("cover.jpg");
+        cover.status = ResourceStatus::Completed;
+        let mut subtitle = resource(DownloadResourceIntent::Subtitle);
+        subtitle.target_path = dir.join("subtitle.json");
+        subtitle.status = ResourceStatus::Completed;
+        tokio::fs::write(&cover.target_path, "image").await.unwrap();
+        tokio::fs::write(
+            &subtitle.target_path,
+            r#"{"body":[{"from":0,"to":1,"content":"测试"}]}"#,
+        )
+        .await
+        .unwrap();
+        let mut task = task(vec![cover.clone(), subtitle.clone()]);
+        task.output_path = dir.join("output.mkv");
+        let selection = select_mux_attachments(&task, true, true).await;
+        // A legacy task has no explicit standalone-file policy: retain its files.
+        tokio::fs::write(&task.output_path, "nonempty muxed fixture")
+            .await
+            .unwrap();
+        assert!(
+            super::cleanup_embedded_sources(&task, &selection)
+                .await
+                .is_empty()
+        );
+        assert!(cover.target_path.exists());
+        task.media_selection.processing = Some(TaskProcessingOptions {
+            embed_cover: true,
+            embed_subtitles: true,
+            archive_assets: Some(ArchiveAssetSelection {
+                cover: true,
+                ..ArchiveAssetSelection::none()
+            }),
+            ..Default::default()
+        });
+        // A missing final output must never trigger source deletion.
+        tokio::fs::remove_file(&task.output_path).await.unwrap();
+        super::cleanup_embedded_sources(&task, &selection).await;
+        assert!(subtitle.target_path.exists());
+        tokio::fs::write(&task.output_path, "nonempty muxed fixture")
+            .await
+            .unwrap();
+        assert!(
+            super::cleanup_embedded_sources(&task, &selection)
+                .await
+                .is_empty()
+        );
+        assert!(cover.target_path.exists());
+        assert!(!subtitle.target_path.exists());
+        assert!(!subtitle.target_path.with_extension("srt").exists());
+        tokio::fs::remove_dir_all(dir).await.unwrap();
     }
 
     fn task(resources: Vec<DownloadResource>) -> DownloadTask {

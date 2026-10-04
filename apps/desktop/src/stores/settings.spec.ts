@@ -6,6 +6,7 @@ import { environmentCreateDownloadDirectory, environmentHealth, settingsGet, set
 import {
   cloneMediaPreferences,
   embeddingContainerError,
+  selectedArchiveAssets,
   namingVariables,
   useSettingsStore,
   validateNamingTemplate,
@@ -282,6 +283,44 @@ it('expands legacy unrestricted video rules into the default concrete quality or
   expect(legacy.video[0].quality).toBe('best')
 })
 
+
+describe('direct attachment choices and media output', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('starts with no standalone files and changes only the checked attachment', () => {
+    const store = useSettingsStore()
+    expect(selectedArchiveAssets(store.draft)).toEqual({ cover: false, subtitles: false, danmaku: false, nfo: false })
+    store.setArchiveAsset('cover', true)
+    expect(store.draft.archive_mode).toBe('custom')
+    expect(selectedArchiveAssets(store.draft)).toEqual({ cover: true, subtitles: false, danmaku: false, nfo: false })
+    expect(selectedArchiveAssets(store.saved).cover).toBe(false)
+    store.setArchiveAsset('cover', false)
+    expect(Object.values(selectedArchiveAssets(store.draft)).some(Boolean)).toBe(false)
+  })
+
+  it('preserves the meaning of legacy complete and custom archive settings', () => {
+    const store = useSettingsStore()
+    store.draft.archive_mode = 'complete_archive'
+    store.draft.archive_assets = { cover: false, subtitles: false, danmaku: false, nfo: false }
+    expect(Object.values(selectedArchiveAssets(store.draft)).every(Boolean)).toBe(true)
+    store.setArchiveAsset('danmaku', false)
+    expect(selectedArchiveAssets(store.draft)).toEqual({ cover: true, subtitles: true, danmaku: false, nfo: true })
+  })
+
+  it('uses MKV when embedding and clears embedding when the user chooses MP4', () => {
+    const store = useSettingsStore()
+    store.setEmbedCover(true)
+    expect(store.draft.output_extension).toBe('mkv')
+    store.setEmbedSubtitles(true)
+    expect(embeddingContainerError(store.draft)).toBeNull()
+    expect(selectedArchiveAssets(store.draft).cover).toBe(false)
+    store.setOutputExtension('mp4')
+    expect(store.draft.embed_cover).toBe(false)
+    expect(store.draft.embed_subtitles).toBe(false)
+    store.setEmbedSubtitles(true)
+    expect(store.draft.output_extension).toBe('mkv')
+  })
+})
 
 describe('native app preferences', () => {
   beforeEach(() => {

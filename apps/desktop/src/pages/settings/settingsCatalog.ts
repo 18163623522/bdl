@@ -2,16 +2,9 @@ import type { SelectOption } from '../../ui/Select.vue';
 import type { SettingsSection } from './settingsSections';
 
 export const settingsSections = [
-  { id: 'settings-download', label: '下载', description: '目录、并发与恢复', icon: 'i-tabler-download' },
-  { id: 'settings-media', label: '媒体', description: '清晰度与封装格式', icon: 'i-tabler-movie' },
+  { id: 'settings-download', label: '下载', description: '目录、速度与任务恢复', icon: 'i-tabler-download' },
+  { id: 'settings-media', label: '媒体', description: '画质、编码与成品文件', icon: 'i-tabler-movie' },
   { id: 'settings-naming', label: '文件命名', description: '模板与重名处理', icon: 'i-tabler-file-text' },
-  {
-    id: 'settings-media-advanced',
-    label: '编码与处理',
-    description: '编码、分段与 FFmpeg',
-    icon: 'i-tabler-adjustments-horizontal',
-  },
-  { id: 'settings-archive', label: '附加内容', description: '封面、字幕与弹幕', icon: 'i-tabler-files' },
   { id: 'settings-update', label: '应用更新', description: '版本检测与安装', icon: 'i-tabler-refresh' },
   { id: 'settings-maintenance', label: '网络与维护', description: '代理、日志与数据', icon: 'i-tabler-tool' },
 ] as const satisfies readonly SettingsSection[];
@@ -79,11 +72,6 @@ export const segmentCountOptions = options([
   { label: '2 段', value: '2' },
   { label: '4 段', value: '4' },
   { label: '8 段', value: '8' },
-]);
-export const archiveModeOptions = options([
-  { label: '仅下载最终视频（最快）', value: 'fast' },
-  { label: '下载全部附加内容', value: 'complete_archive' },
-  { label: '自定义附加内容', value: 'custom' },
 ]);
 export const logLevelOptions = options([
   { label: '调试', value: 'debug' },

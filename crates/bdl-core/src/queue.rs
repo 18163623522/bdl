@@ -269,6 +269,8 @@ pub struct TaskProcessingOptions {
     pub retain_raw_streams: bool,
     pub embed_cover: bool,
     pub embed_subtitles: bool,
+    /// Explicit standalone files to retain; absent for tasks created by older versions.
+    pub archive_assets: Option<crate::planner::ArchiveAssetSelection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

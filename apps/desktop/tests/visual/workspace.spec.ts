@@ -660,13 +660,13 @@ test('mobile redesign keeps content first with populated lists and bottom sheets
   await expect(page.locator('.workspace-enter-active, .workspace-leave-active')).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('reference-personal.png') });
   await page.getByRole('button', { name: /下载设置/ }).click();
-  await expect(page.locator('.settings-category')).toHaveCount(6);
+  await expect(page.locator('.settings-category')).toHaveCount(4);
   await expect(page.locator('.mobile-header')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('redesign-settings.png') });
-  await page.getByRole('button', { name: '下载 目录、并发与恢复' }).click();
+  await page.getByRole('button', { name: '下载 目录、速度与任务恢复' }).click();
   await expect(page.getByLabel('全局下载限速（MB/s）', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '返回设置' }).click();
-  await expect(page.locator('.settings-category')).toHaveCount(6);
+  await expect(page.locator('.settings-category')).toHaveCount(4);
   await page.getByRole('button', { name: '返回我的' }).click();
   await page.getByRole('button', { name: /外观：/ }).first().click();
   await page.getByRole('menuitemcheckbox', { name: '深色' }).click();
@@ -1409,7 +1409,7 @@ test('media preferences reorder combinations while download keeps optimal qualit
   });
   await page.goto('/');
   await page.getByRole('button', { name: '设置 偏好与维护' }).click();
-  await page.getByRole('button', { name: /媒体 清晰度/ }).click();
+  await page.getByRole('button', { name: /媒体 画质/ }).click();
   await page.getByRole('button', { name: '添加画质' }).click();
   await page.getByRole('combobox', { name: '第 1 优先画质', exact: true }).click();
   await page.getByRole('option', { name: 'HDR / 125', exact: true }).click();
@@ -1437,7 +1437,7 @@ test('media preferences reorder combinations while download keeps optimal qualit
   await page.getByRole('button', { name: '选择 测试视频' }).click();
   await page.getByRole('button', { name: '下载所选 (1)' }).click();
   const dialog = page.getByRole('dialog', { name: '下载设置' });
-  await dialog.getByRole('tab', { name: '画质与音频' }).click();
+  await dialog.getByRole('tab', { name: '媒体', exact: true }).click();
   await expect(dialog.getByRole('combobox', { name: /视频清晰度/ })).toContainText('最优画质');
   await expect(dialog.getByText('按本次优先顺序选择')).toBeVisible();
   await dialog.getByRole('button', { name: '开始下载' }).click();
@@ -1469,7 +1469,7 @@ test('missing directory allows parsing and explicit SDR task creation', async ({
   await page.getByRole('button', { name: '选择 测试视频' }).click();
   await page.getByRole('button', { name: '下载所选 (1)' }).click();
   const dialog = page.getByRole('dialog', { name: '下载设置' });
-  await dialog.getByRole('tab', { name: '画质与音频' }).click();
+  await dialog.getByRole('tab', { name: '媒体', exact: true }).click();
   await dialog.getByRole('combobox', { name: /视频清晰度/ }).click();
   await page.getByRole('option', { name: 'SDR / 普通动态范围', exact: true }).click();
   await dialog.getByRole('button', { name: '开始下载' }).click();
@@ -1520,7 +1520,7 @@ test('download tabs use saved presets and keep overrides local', async ({ page }
   await expect(page.getByRole('listbox')).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('download-general.png') });
   const generalBounds = await dialog.boundingBox();
-  await dialog.getByRole('tab', { name: '画质与音频' }).click();
+  await dialog.getByRole('tab', { name: '媒体', exact: true }).click();
   await expect.poll(async () => (await dialog.boundingBox())?.height).toBe(generalBounds?.height);
   await expect.poll(async () => (await dialog.boundingBox())?.y).toBe(generalBounds?.y);
   await page.screenshot({ path: testInfo.outputPath('download-media.png') });
@@ -1591,8 +1591,8 @@ test('download archive settings inherit defaults and override processing per tas
   await page.getByRole('button', { name: '选择 测试视频' }).click();
   await page.getByRole('button', { name: '下载所选 (1)' }).click();
   const dialog = page.getByRole('dialog', { name: '下载设置' });
-  await dialog.getByRole('tab', { name: '附加内容', exact: true }).click();
-  for (const label of ['保留原始视频/音频轨道', '嵌入封面（仅 MKV）', '嵌入字幕（仅 MKV）']) {
+  await dialog.getByRole('tab', { name: '媒体', exact: true }).click();
+  for (const label of ['保留原始视频/音频轨道', '嵌入封面', '嵌入字幕（SRT）']) {
     await expect(dialog.getByRole('checkbox', { name: label, exact: true })).toBeChecked();
     await dialog.getByRole('checkbox', { name: label, exact: true }).uncheck();
   }
@@ -1606,6 +1606,148 @@ test('download archive settings inherit defaults and override processing per tas
   expect(result.saves).toBe(0);
 });
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`settings cleanup ${theme} desktop media and direct attachments`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await installTauriMock(page, theme);
+    await page.addInitScript(() => {
+      const target = window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> }; __CLEAN_SETTINGS__?: unknown };
+      const invoke = target.__TAURI_INTERNALS__.invoke;
+      target.__TAURI_INTERNALS__.invoke = async (command, args) => {
+        const result = await invoke(command, args);
+        if (command === 'settings_update') { target.__CLEAN_SETTINGS__ = args?.settings; return args?.settings; }
+        return result;
+      };
+    });
+    await page.goto('/');
+    await page.getByRole('button', { name: '设置 偏好与维护' }).click();
+    const nav = page.getByRole('navigation', { name: '设置分区' });
+    await expect(nav.getByRole('button', { name: /编码与处理/ })).toHaveCount(0);
+    await expect(page.getByRole('combobox', { name: '单任务分段数', exact: true })).toBeVisible();
+    await page.getByRole('textbox', { name: '保存目录', exact: true }).fill('D:\\下载目录\\' + '很长的目录名称'.repeat(18));
+    await page.screenshot({ path: testInfo.outputPath('settings-download.png') });
+    await expect(nav.getByRole('button', { name: /附加文件/ })).toHaveCount(0);
+    await nav.getByRole('button', { name: /媒体 画质/ }).click();
+    await expect(page.getByRole('combobox', { name: '下载范围', exact: true })).toHaveCount(0);
+    for (const name of ['保存封面', '保存字幕', '保存弹幕', '生成 NFO']) {
+      await expect(page.getByRole('checkbox', { name, exact: true })).toBeVisible();
+      await expect(page.getByRole('checkbox', { name, exact: true })).not.toBeChecked();
+    }
+    const coverFile = page.getByRole('checkbox', { name: '保存封面', exact: true });
+    await coverFile.focus();
+    await page.keyboard.press('Space');
+    await expect(coverFile).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: '保存字幕', exact: true })).not.toBeChecked();
+    await page.screenshot({ path: testInfo.outputPath('settings-attachments.png') });
+    await expect(page.getByRole('combobox', { name: '视频编码偏好', exact: true })).toBeVisible();
+    const format = page.getByRole('combobox', { name: /^封装格式/ });
+    const embed = page.getByRole('checkbox', { name: '嵌入字幕（SRT）', exact: true });
+    await expect(format).toContainText('MP4');
+    await embed.focus();
+    await page.keyboard.press('Space');
+    await expect(embed).toBeChecked();
+    await expect(format).toContainText('MKV');
+    await page.getByRole('checkbox', { name: '嵌入封面', exact: true }).check();
+    await format.click();
+    await page.getByRole('option', { name: 'MP4', exact: true }).click();
+    await expect(embed).not.toBeChecked();
+    await expect(page.getByRole('checkbox', { name: '嵌入封面', exact: true })).not.toBeChecked();
+    await embed.check();
+    await page.screenshot({ path: testInfo.outputPath('settings-media.png') });
+    await page.setViewportSize({ width: 900, height: 700 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('settings-media-narrow.png') });
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __CLEAN_SETTINGS__?: unknown }).__CLEAN_SETTINGS__)).toMatchObject({
+      archive_mode: 'custom', archive_assets: { cover: true, subtitles: false, danmaku: false, nfo: false },
+      output_extension: 'mkv', embed_subtitles: true, embed_cover: false,
+    });
+  });
+
+  test(`settings cleanup ${theme} one-time download options`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await installTauriMock(page, theme);
+    await page.addInitScript(() => {
+      const target = window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> }; __CLEAN_REQUEST__?: unknown };
+      const invoke = target.__TAURI_INTERNALS__.invoke;
+      target.__TAURI_INTERNALS__.invoke = async (command, args) => {
+        if (command === 'selection_create_tasks') target.__CLEAN_REQUEST__ = args?.request;
+        return invoke(command, args);
+      };
+    });
+    await page.goto('/');
+    await page.getByLabel('链接或 BV / AV').fill('BV1xx411c7mD');
+    await page.getByRole('button', { name: '开始解析' }).click();
+    await page.getByRole('button', { name: '选择 测试视频' }).click();
+    await page.getByRole('button', { name: '下载所选 (1)' }).click();
+    const dialog = page.getByRole('dialog', { name: '下载设置' });
+    await expect(dialog.getByRole('combobox', { name: '下载内容', exact: true })).toContainText('音视频');
+    await expect(dialog.getByRole('combobox', { name: /^封装格式/ })).not.toBeVisible();
+    await expect(dialog.getByRole('tab', { name: '附加文件', exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole('tab')).toHaveCount(3);
+    await dialog.getByRole('tab', { name: '媒体', exact: true }).click();
+    await expect(dialog.getByRole('combobox', { name: '下载范围', exact: true })).toHaveCount(0);
+    for (const name of ['保存封面', '保存字幕', '保存弹幕', '生成 NFO']) {
+      await expect(dialog.getByRole('checkbox', { name, exact: true })).toBeVisible();
+      await expect(dialog.getByRole('checkbox', { name, exact: true })).not.toBeChecked();
+    }
+    await page.screenshot({ path: testInfo.outputPath('download-attachments.png') });
+    await dialog.getByRole('checkbox', { name: '嵌入封面', exact: true }).check();
+    await dialog.getByRole('checkbox', { name: '嵌入字幕（SRT）', exact: true }).check();
+    await expect(dialog.getByRole('combobox', { name: /^封装格式/ })).toContainText('MKV');
+    await page.setViewportSize({ width: 900, height: 700 });
+    await expect(dialog.getByRole('button', { name: '开始下载', exact: true })).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('download-media.png') });
+    await dialog.getByRole('button', { name: '开始下载', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __CLEAN_REQUEST__?: unknown }).__CLEAN_REQUEST__)).toMatchObject({
+      archive_mode: 'custom', archive_assets: { cover: false, subtitles: false, danmaku: false, nfo: false },
+      output_extension: 'mkv', embed_cover: true, embed_subtitles: true,
+    });
+    expect(await page.evaluate(() => (window as unknown as { __BDL_TEST_INVOKES__: string[] }).__BDL_TEST_INVOKES__.filter((name) => name === 'settings_update').length)).toBe(0);
+  });
+}
+
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`settings cleanup ${theme} mobile attachments and MKV`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 375, height: 844 });
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (Linux; Android 12) Mobile' });
+    });
+    await installTauriMock(page, theme);
+    await page.addInitScript(() => {
+      const target = window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } };
+      const invoke = target.__TAURI_INTERNALS__.invoke;
+      target.__TAURI_INTERNALS__.invoke = async (command, args) => {
+        const result = await invoke(command, args);
+        return command === 'settings_get' ? { ...(result as object), output_extension: 'mkv' } : result;
+      };
+    });
+    await page.goto('/');
+    await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '我的', exact: true }).click();
+    await page.getByRole('button', { name: /下载设置/ }).click();
+    await expect(page.locator('.settings-category')).toHaveCount(4);
+    await expect(page.getByRole('button', { name: /附加文件 封面/ })).toHaveCount(0);
+    await page.getByRole('button', { name: /媒体 画质/ }).click();
+    for (const name of ['保存封面', '保存字幕', '保存弹幕', '生成 NFO']) {
+      await expect(page.getByRole('checkbox', { name, exact: true })).toBeVisible();
+      await expect(page.getByRole('checkbox', { name, exact: true })).not.toBeChecked();
+    }
+    await page.getByRole('checkbox', { name: '保存字幕', exact: true }).check();
+    await page.screenshot({ path: testInfo.outputPath('mobile-attachments.png') });
+    await expect(page.getByRole('combobox', { name: '封装格式', exact: true })).toContainText('MKV');
+    await expect(page.getByRole('checkbox', { name: '嵌入封面', exact: true })).toBeDisabled();
+    await expect(page.getByRole('checkbox', { name: '嵌入字幕（SRT）', exact: true })).toBeDisabled();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('mobile-media.png') });
+    await page.getByRole('button', { name: '返回设置', exact: true }).click();
+    await page.getByRole('button', { name: /下载 目录/ }).click();
+    await expect(page.getByRole('combobox', { name: '单任务分段数', exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'FFmpeg 路径', exact: true })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('mobile-download.png') });
+  });
+}
 
 test('pagination presets save rules and allow custom cooldown', async ({ page }, testInfo) => {
   await installTauriMock(page, 'light');

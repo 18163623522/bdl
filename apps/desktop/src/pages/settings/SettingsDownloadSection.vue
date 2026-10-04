@@ -5,7 +5,8 @@ import UiCheckbox from '../../ui/Checkbox.vue';
 import UiIconButton from '../../ui/IconButton.vue';
 import UiSelect from '../../ui/Select.vue';
 import UiTextField from '../../ui/TextField.vue';
-import { concurrentTaskOptions, retryCountOptions } from './settingsCatalog';
+import SettingsEnvironmentSummary from './SettingsEnvironmentSummary.vue';
+import { concurrentTaskOptions, retryCountOptions, segmentCountOptions } from './settingsCatalog';
 import type { SettingsForm } from './useSettingsForm';
 
 const { form, desktopPaths = true } = defineProps<{ form: SettingsForm; desktopPaths?: boolean }>();
@@ -14,6 +15,8 @@ const {
   settingsDownloadDir,
   settingsConcurrentTasks,
   settingsRetryCount,
+  settingsSegmentCount,
+  settingsFfmpegPath,
   settingsGlobalSpeedLimitMb,
   settingsGlobalSpeedLimitError,
   updateGlobalSpeedLimit,
@@ -42,6 +45,7 @@ const {
     <div class="settings-inline-grid">
       <UiSelect v-model="settingsConcurrentTasks" label="同时下载任务数" :options="concurrentTaskOptions" />
       <UiSelect v-model="settingsRetryCount" label="失败自动重试次数" :options="retryCountOptions" />
+      <UiSelect v-model="settingsSegmentCount" label="单任务分段数" :options="segmentCountOptions" />
     </div>
     <UiTextField
       :model-value="settingsGlobalSpeedLimitMb"
@@ -63,6 +67,20 @@ const {
       />
     </div>
     <ParseRulesEditor v-model="settings.draft.parse_rules" />
+    <fieldset v-if="desktopPaths" class="settings-group">
+      <legend>FFmpeg</legend>
+      <div class="directory-row">
+        <UiTextField v-model="settingsFfmpegPath" label="FFmpeg 路径" placeholder="留空时使用系统 FFmpeg" />
+        <UiButton variant="secondary" :disabled="settings.loading || settings.saving" @click="settings.chooseFfmpegPath">选择</UiButton>
+      </div>
+      <SettingsEnvironmentSummary
+        :health="settings.environmentHealth"
+        :checking="settings.environmentChecking"
+        @check="settings.checkEnvironment"
+        @choose-ffmpeg="settings.chooseFfmpegPath"
+        @use-system-ffmpeg="settings.clearFfmpegPath"
+      />
+    </fieldset>
   </section>
 </template>
 

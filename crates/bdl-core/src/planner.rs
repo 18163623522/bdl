@@ -214,6 +214,14 @@ impl DownloadOptions {
         self.archive_mode = archive_mode;
         self
     }
+
+    pub fn selected_archive_assets(&self) -> ArchiveAssetSelection {
+        match self.archive_mode {
+            ArchiveMode::Fast => ArchiveAssetSelection::none(),
+            ArchiveMode::CompleteArchive => ArchiveAssetSelection::all(),
+            ArchiveMode::Custom => self.archive_assets,
+        }
+    }
 }
 
 pub fn plan_selected_parts(
@@ -373,11 +381,11 @@ fn plan_part(
         )?);
     }
 
-    let archive_assets = match options.archive_mode {
-        ArchiveMode::Fast => ArchiveAssetSelection::none(),
-        ArchiveMode::CompleteArchive => ArchiveAssetSelection::all(),
-        ArchiveMode::Custom => options.archive_assets,
-    };
+    let mut archive_assets = options.selected_archive_assets();
+    if let Some(processing) = options.processing {
+        archive_assets.cover |= processing.embed_cover;
+        archive_assets.subtitles |= processing.embed_subtitles;
+    }
     if archive_assets != ArchiveAssetSelection::none() {
         resources.extend(complete_archive_resources(
             &task_id,

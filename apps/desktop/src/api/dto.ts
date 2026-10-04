@@ -129,6 +129,7 @@ export interface DownloadTask {
   title: string
   source_id: string
   status: TaskStatus
+  completed_at?: string | null
   resources: DownloadResource[]
   output_path: string
   export_target?: DownloadExportTarget | null
@@ -183,6 +184,7 @@ export interface DownloadTaskMediaSelection {
     retain_raw_streams: boolean
     embed_cover: boolean
     embed_subtitles: boolean
+    archive_assets?: SettingsSnapshot['archive_assets'] | null
   } | null
 }
 

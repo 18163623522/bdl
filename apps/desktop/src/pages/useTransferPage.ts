@@ -17,7 +17,11 @@ export function useTransferPage() {
   const ui = useUiStore();
   const transferCapabilities = { canOpenOutput: !isMobilePlatform() || isAndroidPlatform() };
   const completedSearch = ref('');
-  const transferSort = ref<TransferSortMode>('queue');
+  const transferSortByFilter = ref<Partial<Record<QueueFilter, TransferSortMode>>>({});
+  const transferSort = computed({
+    get: () => transferSortByFilter.value[queue.activeFilter] ?? (queue.activeFilter === 'completed' ? 'completed_desc' : 'queue'),
+    set: (value: TransferSortMode) => { transferSortByFilter.value[queue.activeFilter] = value; },
+  });
   const {
     taskDetailOpen,
     selectedLogs,
@@ -54,13 +58,14 @@ export function useTransferPage() {
     { label: '已完成', value: 'completed', count: queue.countByFilter('completed') },
     { label: '全部', value: 'all', count: queue.tasks.length },
   ]);
-  const transferSortOptions = [
-    { label: '队列顺序', value: 'queue' },
+  const transferSortOptions = computed(() => [
+    ...(queue.activeFilter === 'completed' ? [{ label: '最新完成在前', value: 'completed_desc' }] : []),
+    { label: '最新添加在前', value: 'queue' },
     { label: '名称（升序）', value: 'name_asc' },
     { label: '进度（高到低）', value: 'progress_desc' },
     { label: '速度（快到慢）', value: 'speed_desc' },
     { label: '失败 / 取消在前', value: 'issue_first' },
-  ];
+  ]);
   const completedSearchQuery = computed(() => completedSearch.value.trim().toLowerCase());
   const visibleTasks = computed(() => {
     let tasks = queue.filteredTasks;

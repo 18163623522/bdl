@@ -2,8 +2,6 @@ export type SettingsSectionId =
   | 'settings-download'
   | 'settings-media'
   | 'settings-naming'
-  | 'settings-media-advanced'
-  | 'settings-archive'
   | 'settings-update'
   | 'settings-maintenance';
 

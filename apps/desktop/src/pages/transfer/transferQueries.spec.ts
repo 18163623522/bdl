@@ -22,6 +22,31 @@ describe('transfer queries', () => {
     ]);
   });
 
+  it('sorts by actual completion time rather than queue order and leaves input intact', () => {
+    const completed = [
+      { ...task('late', '晚完成', 'completed'), completed_at: '2026-10-04T08:06:01Z' },
+      { ...task('early', '早完成', 'completed'), completed_at: '2026-10-04T15:05:00+08:00' },
+      { ...task('middle', '中间完成', 'completed'), completed_at: '2026-10-04T08:00:00Z' },
+    ];
+    expect(sortTransferTasks(completed, 'completed_desc', metrics).map((value) => value.id)).toEqual(['late', 'middle', 'early']);
+    expect(sortTransferTasks(completed, 'queue', metrics).map((value) => value.id)).toEqual(['middle', 'early', 'late']);
+    expect(completed.map((value) => value.id)).toEqual(['late', 'early', 'middle']);
+  });
+
+  it('shows newest additions first without mutating the stored queue', () => {
+    expect(sortTransferTasks(tasks, 'queue', metrics).map((value) => value.id)).toEqual(['three', 'two', 'one']);
+    expect(tasks.map((value) => value.id)).toEqual(['one', 'two', 'three']);
+  });
+
+  it('places unknown completion times last with a deterministic reverse-queue fallback', () => {
+    const completed = [
+      task('unknown', '旧记录', 'completed'),
+      { ...task('known', '有时间', 'completed'), completed_at: '2026-10-04T08:00:00Z' },
+      { ...task('invalid', '坏时间', 'completed'), completed_at: 'invalid' },
+    ];
+    expect(sortTransferTasks(completed, 'completed_desc', metrics).map((value) => value.id)).toEqual(['known', 'invalid', 'unknown']);
+  });
+
   it('puts actionable failures before active and completed tasks', () => {
     const completed = task('done', '完成', 'completed');
     expect(sortTransferTasks([...tasks, completed], 'issue_first', metrics)[0]?.id).toBe('three');

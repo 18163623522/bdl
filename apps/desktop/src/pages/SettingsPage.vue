@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import UiButton from '../ui/Button.vue';
 import UiInlineNotice from '../ui/InlineNotice.vue';
-import SettingsArchiveSection from './settings/SettingsArchiveSection.vue';
 import SettingsDownloadSection from './settings/SettingsDownloadSection.vue';
 import SettingsMaintenanceSection from './settings/SettingsMaintenanceSection.vue';
 import SettingsMediaSection from './settings/SettingsMediaSection.vue';
 import SettingsNamingSection from './settings/SettingsNamingSection.vue';
-import SettingsProcessingSection from './settings/SettingsProcessingSection.vue';
 import SettingsUpdateSection from './settings/SettingsUpdateSection.vue';
 import SettingsSectionNav from './settings/SettingsSectionNav.vue';
 import { useSettingsPage } from "./useSettingsPage";
@@ -82,14 +80,6 @@ const { settingsForm, supportsDesktopPaths, settings, settingsGlobalSpeedLimitEr
           <SettingsMediaSection v-else-if="activeSettingsSection === 'settings-media'" :form="settingsForm" />
 
           <SettingsNamingSection v-else-if="activeSettingsSection === 'settings-naming'" :form="settingsForm" />
-
-          <SettingsProcessingSection
-            v-else-if="activeSettingsSection === 'settings-media-advanced'"
-            :form="settingsForm"
-            :desktop-paths="supportsDesktopPaths"
-          />
-
-          <SettingsArchiveSection v-else-if="activeSettingsSection === 'settings-archive'" :form="settingsForm" />
 
           <SettingsUpdateSection v-else-if="activeSettingsSection === 'settings-update'" />
 

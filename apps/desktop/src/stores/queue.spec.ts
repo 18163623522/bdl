@@ -36,6 +36,24 @@ describe('queue reconciliation', () => {
     expect(queue.tasks[0]?.status).toBe('completed')
     expect(queue.reconciling).toBe(false)
   })
+
+  it('keeps completion time through events and replaces it when a retried task completes', async () => {
+    const queue = useQueueStore()
+    queue.tasks = [task('muxing')]
+    queue.upsertTask(task('completed'))
+    const completedAt = queue.tasks[0]?.completed_at
+    expect(Number.isFinite(Date.parse(completedAt!))).toBe(true)
+    queue.upsertTask(task('completed'))
+    expect(queue.tasks[0]?.completed_at).toBe(completedAt)
+    api.queueList.mockResolvedValue([{ ...task('completed'), completed_at: '2026-10-04T08:06:01Z' }])
+    await queue.reconcile()
+    queue.upsertTask(task('completed'))
+    expect(queue.tasks[0]?.completed_at).toBe('2026-10-04T08:06:01Z')
+    queue.upsertTask(task('waiting'))
+    expect(queue.tasks[0]?.completed_at).toBeNull()
+    queue.upsertTask(task('completed'))
+    expect(queue.tasks[0]?.completed_at).not.toBe('2026-10-04T08:06:01Z')
+  })
 })
 
 describe('queue stage progress', () => {

@@ -152,12 +152,14 @@ fn ffmpeg_args(request: &MuxRequest) -> Result<Vec<OsString>, MuxError> {
         request.audio_path.as_ref(),
         &mut next_input_index,
     );
-    let cover_input_index = cover_path.map(|path| {
-        args.extend([os("-i"), path.as_os_str().to_owned()]);
-        let index = next_input_index;
-        next_input_index += 1;
-        index
-    });
+    let cover_input_index = cover_path
+        .filter(|_| !is_mkv(&request.output_path))
+        .map(|path| {
+            args.extend([os("-i"), path.as_os_str().to_owned()]);
+            let index = next_input_index;
+            next_input_index += 1;
+            index
+        });
 
     let mut subtitle_input_indices = Vec::with_capacity(subtitle_paths.len());
     for subtitle_path in subtitle_paths {
@@ -199,6 +201,22 @@ fn ffmpeg_args(request: &MuxRequest) -> Result<Vec<OsString>, MuxError> {
         ]);
     }
 
+    if let Some(path) = cover_path.filter(|_| is_mkv(&request.output_path)) {
+        let (mime, filename) = if lower_extension(path).as_deref() == Some("png") {
+            ("image/png", "cover.png")
+        } else {
+            ("image/jpeg", "cover.jpg")
+        };
+        args.extend([
+            os("-attach"),
+            path.as_os_str().to_owned(),
+            os("-metadata:s:t:0"),
+            os(format!("mimetype={mime}")),
+            os("-metadata:s:t:0"),
+            os(format!("filename={filename}")),
+        ]);
+    }
+
     push_output(&mut args, &request.output_path);
     Ok(args)
 }
@@ -231,7 +249,7 @@ fn push_output(args: &mut Vec<OsString>, output_path: &Path) {
 }
 
 pub fn supports_cover_embedding(output_path: &Path, cover_path: &Path) -> bool {
-    is_mp4_like(output_path)
+    (is_mp4_like(output_path) || is_mkv(output_path))
         && matches!(
             lower_extension(cover_path).as_deref(),
             Some("jpg" | "jpeg" | "png")

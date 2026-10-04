@@ -371,6 +371,7 @@ fn sample_task() -> DownloadTask {
                 retain_raw_streams: true,
                 embed_cover: true,
                 embed_subtitles: false,
+                archive_assets: Some(bdl_core::planner::ArchiveAssetSelection::none()),
             }),
             video_quality: "80".to_owned(),
             audio_quality: "30280".to_owned(),

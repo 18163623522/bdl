@@ -232,8 +232,16 @@ export const useQueueStore = defineStore('queue', {
         delete this.outputSizesByTask[task.id]
       }
       const index = this.tasks.findIndex((candidate) => candidate.id === task.id)
+      const previous = this.tasks[index]
+      task = {
+        ...task,
+        completed_at: task.status === 'completed'
+          ? task.completed_at ?? (previous?.status === 'completed' ? previous.completed_at : null) ?? new Date().toISOString()
+          : null,
+      }
       if (index === -1) {
-        this.tasks.unshift(task)
+        // Match the backend's oldest-to-newest order, including batches and refreshes.
+        this.tasks.push(task)
       } else {
         this.tasks[index] = task
       }
@@ -551,12 +559,7 @@ export const useQueueStore = defineStore('queue', {
     },
     applyBulkResult(result: BulkQueueResult) {
       for (const task of result.updated) {
-        const index = this.tasks.findIndex((candidate) => candidate.id === task.id)
-        if (index === -1) {
-          this.tasks.unshift(task)
-        } else {
-          this.tasks[index] = task
-        }
+        this.upsertTask(task)
       }
 
       const removed = new Set(result.removed)

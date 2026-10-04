@@ -26,6 +26,14 @@ export const embeddingContainerError = (
     ? '嵌入封面和字幕仅支持 MKV 封装，请改用 MKV 或关闭嵌入选项。'
     : null
 
+export const selectedArchiveAssets = (
+  settings: Pick<SettingsSnapshot, 'archive_mode' | 'archive_assets'>,
+): SettingsSnapshot['archive_assets'] => {
+  if (settings.archive_mode === 'custom') return { ...settings.archive_assets }
+  const selected = settings.archive_mode === 'complete_archive'
+  return { cover: selected, subtitles: selected, danmaku: selected, nfo: selected }
+}
+
 export const namingTemplatePresets = [
   { label: '分P视频', value: defaultNamingTemplate },
   { label: '单文件', value: '{title}.{ext}' },
@@ -523,14 +531,19 @@ export const useSettingsStore = defineStore('settings', {
     },
     setArchiveAsset(kind: keyof SettingsSnapshot['archive_assets'], value: boolean) {
       this.draft.archive_assets = {
-        ...this.draft.archive_assets,
+        ...selectedArchiveAssets(this.draft),
         [kind]: value,
       }
+      this.draft.archive_mode = 'custom'
     },
     setOutputExtension(value: string) {
       this.draft.output_extension = outputExtensions.has(value as SettingsSnapshot['output_extension'])
         ? (value as SettingsSnapshot['output_extension'])
         : 'mp4'
+      if (this.draft.output_extension !== 'mkv') {
+        this.draft.embed_cover = false
+        this.draft.embed_subtitles = false
+      }
     },
     setDuplicateNamingStrategy(value: string) {
       this.draft.duplicate_naming_strategy = duplicateNamingStrategies.has(
@@ -588,9 +601,11 @@ export const useSettingsStore = defineStore('settings', {
     },
     setEmbedCover(value: boolean) {
       this.draft.embed_cover = value
+      if (value) this.draft.output_extension = 'mkv'
     },
     setEmbedSubtitles(value: boolean) {
       this.draft.embed_subtitles = value
+      if (value) this.draft.output_extension = 'mkv'
     },
     apply(settings: SettingsSnapshot) {
       const normalized = normalizeSettings(settings)

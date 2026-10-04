@@ -1,6 +1,6 @@
 import { computed, onMounted, ref } from 'vue';
 
-import { defaultNamingTemplate, embeddingContainerError, useSettingsStore } from '../../stores/settings';
+import { defaultNamingTemplate, embeddingContainerError, selectedArchiveAssets, useSettingsStore } from '../../stores/settings';
 import { isAndroidPlatform } from '../../utils/platform';
 import { speedLimitMbError, toBytesPerSecond, toMbPerSecondInput } from '../../utils/speedLimit';
 
@@ -11,24 +11,21 @@ export function useSettingsForm() {
     get: () => settings.draft.download_dir ?? '',
     set: (value: string) => settings.setDownloadDir(value),
   });
-  const settingsArchiveMode = computed({
-    get: () => settings.draft.archive_mode,
-    set: (value: string) => settings.setArchiveMode(value),
-  });
+  const archiveAssets = computed(() => selectedArchiveAssets(settings.draft));
   const settingsArchiveCover = computed({
-    get: () => settings.draft.archive_assets.cover,
+    get: () => archiveAssets.value.cover,
     set: (value: boolean) => settings.setArchiveAsset('cover', value),
   });
   const settingsArchiveSubtitles = computed({
-    get: () => settings.draft.archive_assets.subtitles,
+    get: () => archiveAssets.value.subtitles,
     set: (value: boolean) => settings.setArchiveAsset('subtitles', value),
   });
   const settingsArchiveDanmaku = computed({
-    get: () => settings.draft.archive_assets.danmaku,
+    get: () => archiveAssets.value.danmaku,
     set: (value: boolean) => settings.setArchiveAsset('danmaku', value),
   });
   const settingsArchiveNfo = computed({
-    get: () => settings.draft.archive_assets.nfo,
+    get: () => archiveAssets.value.nfo,
     set: (value: boolean) => settings.setArchiveAsset('nfo', value),
   });
   const settingsOutputFormat = computed({
@@ -134,9 +131,6 @@ export function useSettingsForm() {
 
   const applyPlatformSettingsConstraints = () => {
     if (!isAndroidPlatform()) return;
-    if (settings.draft.output_extension !== 'mp4') {
-      settings.setOutputExtension('mp4');
-    }
     if (settings.draft.embed_cover) {
       settings.setEmbedCover(false);
     }
@@ -178,7 +172,6 @@ export function useSettingsForm() {
   return {
     settings,
     settingsDownloadDir,
-    settingsArchiveMode,
     settingsArchiveCover,
     settingsArchiveSubtitles,
     settingsArchiveDanmaku,

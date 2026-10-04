@@ -5,12 +5,13 @@ import { computed, ref, watch } from 'vue'
 import type { SettingsSnapshot, NamingPreset, DownloadMediaMode, DuplicateTaskMatch, DuplicateTaskPolicy, VideoCodecPreference, DocumentTreeDirectory } from '../../api/dto'
 import { mobilePickExportDirectory } from '../../api/tauri'
 import { useParseStore } from '../../stores/parse'
-import { validateNamingTemplate, cloneMediaPreferences, useSettingsStore } from '../../stores/settings'
+import { validateNamingTemplate, cloneMediaPreferences, selectedArchiveAssets, useSettingsStore } from '../../stores/settings'
 import type { InlineNotice } from '../../stores/feedback'
 import { statusBadge, statusLabel } from '../../stores/transferView'
-import { archiveModeOptions, duplicateNamingOptions, missingQualityOptions, videoQualityOptions, audioQualityOptions, codecOptions } from '../settings/settingsCatalog'
+import { duplicateNamingOptions, missingQualityOptions, videoQualityOptions, audioQualityOptions, codecOptions } from '../settings/settingsCatalog'
 import NamingTemplatePicker from '../../ui/NamingTemplatePicker.vue'
 import MediaPreferenceEditor from '../settings/MediaPreferenceEditor.vue'
+import MediaOutputOptions from '../../ui/MediaOutputOptions.vue'
 import UiTabs from '../../ui/Tabs.vue'
 import { isAndroidPlatform, isMobilePlatform } from '../../utils/platform'
 import UiCheckbox from '../../ui/Checkbox.vue'
@@ -35,7 +36,6 @@ const downloadNotice = ref<InlineNotice | null>(null)
 const downloadDir = ref('')
 const documentTreeOutput = ref<DocumentTreeDirectory | null>(null)
 const rememberDocumentTreeOutput = ref(false)
-const archiveMode = ref<'fast' | 'complete_archive' | 'custom'>('fast')
 const outputExtension = ref<'mp4' | 'mkv'>('mp4')
 const mediaMode = ref<DownloadMediaMode>('audio_video')
 const videoQuality = ref('best')
@@ -46,7 +46,7 @@ const scheduledLocal = ref('')
 const taskSpeedLimitMb = ref('')
 const activeTab = ref('general')
 const defaultsRevision = ref(0)
-const tabs = [{ label: '常规', value: 'general' }, { label: '画质与音频', value: 'media' }, { label: '附加内容', value: 'assets' }, { label: '调度', value: 'schedule' }]
+const tabs = [{ label: '常规', value: 'general' }, { label: '媒体', value: 'media' }, { label: '调度', value: 'schedule' }]
 const namingTemplate = ref('')
 const namingPresets = ref<NamingPreset[]>([])
 const duplicateNamingStrategy = ref<SettingsSnapshot['duplicate_naming_strategy']>('skip_existing')
@@ -54,7 +54,7 @@ const missingQualityPolicy = ref<SettingsSnapshot['missing_quality_policy']>('lo
 const retainRawStreams = ref(false)
 const embedCover = ref(false)
 const embedSubtitles = ref(false)
-const archiveAssets = ref({ ...settings.saved.archive_assets })
+const archiveAssets = ref(selectedArchiveAssets(settings.saved))
 const namingError = computed(() => validateNamingTemplate(namingTemplate.value))
 const scheduleMin = ref('')
 const scheduleValidationNow = ref(Date.now())
@@ -68,7 +68,6 @@ const mediaModeOptions = [
   { label: '仅音频', value: 'audio_only' },
 ]
 const androidPlatform = isAndroidPlatform()
-const outputExtensionOptions = [{ label: 'MP4', value: 'mp4' }, { label: 'MKV', value: 'mkv' }]
 const activeSource = computed(() => parse.activeSource)
 const selectedSourceIds = computed(() => parse.isBatch
   ? parse.selectedSourceIds
@@ -145,7 +144,6 @@ const restoreDefaults = () => {
   downloadDir.value = defaults.download_dir ?? ''
   documentTreeOutput.value = defaults.document_tree_output ? { ...defaults.document_tree_output } : null
   rememberDocumentTreeOutput.value = false
-  archiveMode.value = defaults.archive_mode
   outputExtension.value = defaults.output_extension
   mediaMode.value = 'audio_video'
   mediaPreferences.value = cloneMediaPreferences(defaults.media_preferences)
@@ -156,7 +154,7 @@ const restoreDefaults = () => {
   namingPresets.value = defaults.naming_presets.map((preset) => ({ ...preset }))
   duplicateNamingStrategy.value = defaults.duplicate_naming_strategy
   missingQualityPolicy.value = defaults.missing_quality_policy
-  archiveAssets.value = { ...defaults.archive_assets }
+  archiveAssets.value = selectedArchiveAssets(defaults)
   retainRawStreams.value = defaults.retain_raw_streams
   embedCover.value = androidPlatform ? false : defaults.embed_cover
   embedSubtitles.value = androidPlatform ? false : defaults.embed_subtitles
@@ -216,7 +214,7 @@ const createTasks = async (duplicatePolicy: DuplicateTaskPolicy = 'ask') => {
   const result = await parse.createTasksForSources(sourceIds, {
     downloadDir: isMobilePlatform() ? null : downloadDir.value.trim() || 'downloads',
     documentTreeOutput: isMobilePlatform() ? documentTreeOutput.value : null,
-    archiveMode: archiveMode.value,
+    archiveMode: 'custom',
     outputExtension: outputExtension.value,
     namingTemplate: namingTemplate.value,
     duplicateNamingStrategy: duplicateNamingStrategy.value,
@@ -326,10 +324,7 @@ const chooseDocumentTreeOutput = async () => {
             <UiTextField :model-value="downloadDir" label="保存目录" placeholder="留空时使用 downloads" @update:model-value="updateDownloadDir" />
             <UiButton variant="secondary" :disabled="activeLoading" @click="chooseDownloadDir">选择</UiButton>
           </div>
-          <div class="grid grid-cols-2 gap-3 max-[600px]:grid-cols-1">
-            <UiSelect v-model="mediaMode" label="下载内容" :options="mediaModeOptions" />
-            <UiSelect v-model="outputExtension" label="封装格式" :options="outputExtensionOptions" />
-          </div>
+          <UiSelect v-model="mediaMode" label="下载内容" :options="mediaModeOptions" />
           <NamingTemplatePicker :key="defaultsRevision" v-model="namingTemplate" :presets="namingPresets" :extension="outputExtension" />
           <UiSelect v-model="duplicateNamingStrategy" label="重名处理" :options="duplicateNamingOptions" helper="目标文件已存在时使用此策略；传输记录中的重复任务会另外提示。" />
         </div>
@@ -340,26 +335,26 @@ const chooseDocumentTreeOutput = async () => {
             <UiSelect v-if="includesVideo" v-model="videoCodec" label="视频编码偏好" :options="codecOptions" />
             <UiSelect v-model="missingQualityPolicy" label="指定质量不可用时" :options="missingQualityOptions" />
           </div>
+          <MediaOutputOptions
+            v-model:format="outputExtension"
+            v-model:embed-cover="embedCover"
+            v-model:embed-subtitles="embedSubtitles"
+            v-model:retain-raw-streams="retainRawStreams"
+            :embedding-supported="!androidPlatform"
+          />
+          <section class="grid gap-3" aria-label="附加文件">
+            <h3 class="m-0 text-sm font-semibold">附加文件</h3>
+            <p class="m-0 text-xs text-(--color-muted)">按需勾选，保存为视频旁的独立文件。</p>
+            <div class="grid grid-cols-2 gap-3 max-[600px]:grid-cols-1">
+              <UiCheckbox v-model="archiveAssets.cover" label="保存封面" />
+              <UiCheckbox v-model="archiveAssets.subtitles" label="保存字幕" />
+              <UiCheckbox v-model="archiveAssets.danmaku" label="保存弹幕" />
+              <UiCheckbox v-model="archiveAssets.nfo" label="生成 NFO" />
+            </div>
+          </section>
           <UiDisclosure title="本次优先顺序" description="最优画质 + 自动编码时使用视频排序；最佳可用音频时使用音频排序。" variant="panel">
             <MediaPreferenceEditor v-model="mediaPreferences" />
           </UiDisclosure>
-        </div>
-        <div v-show="activeTab === 'assets'" class="grid gap-4">
-          <UiSelect v-model="archiveMode" label="下载范围" :options="archiveModeOptions" />
-          <div v-if="archiveMode === 'custom'" class="grid grid-cols-2 gap-3 max-[600px]:grid-cols-1">
-            <UiCheckbox v-model="archiveAssets.cover" label="保存封面" />
-            <UiCheckbox v-model="archiveAssets.subtitles" label="保存字幕" />
-            <UiCheckbox v-model="archiveAssets.danmaku" label="保存弹幕" />
-            <UiCheckbox v-model="archiveAssets.nfo" label="生成 NFO" />
-          </div>
-          <UiCheckbox v-model="retainRawStreams" label="保留原始视频/音频轨道" />
-          <div class="grid grid-cols-2 gap-3 max-[600px]:grid-cols-1">
-            <UiCheckbox v-model="embedCover" label="嵌入封面（仅 MKV）" :disabled="androidPlatform" />
-            <UiCheckbox v-model="embedSubtitles" label="嵌入字幕（仅 MKV）" :disabled="androidPlatform" />
-          </div>
-          <UiInlineNotice v-if="androidPlatform" tone="info">
-            Android 内置 FFmpeg 支持 MP4 与 MKV；封面和字幕可保存为独立文件，暂不嵌入成品。
-          </UiInlineNotice>
         </div>
         <div v-show="activeTab === 'schedule'" class="grid grid-cols-2 gap-3 max-[600px]:grid-cols-1">
           <UiTextField v-model="scheduledLocal" type="datetime-local" label="开始时间（可选）" :min="scheduleMin" :error="scheduleError" helper="留空时立即加入下载队列" />

@@ -308,6 +308,41 @@ fn plan_selected_parts_custom_archive_uses_selected_asset_intents_only() {
 }
 
 #[test]
+fn embedding_downloads_required_sources_without_enabling_unselected_sidecars() {
+    let tree = fixture_tree(true);
+    for mode in [ArchiveMode::Fast, ArchiveMode::Custom] {
+        let mut options = DownloadOptions::new(PathBuf::from("downloads")).with_archive_mode(mode);
+        options.output_extension = "mkv".to_owned();
+        options.archive_assets = ArchiveAssetSelection::none();
+        options.processing = Some(bdl_core::queue::TaskProcessingOptions {
+            embed_cover: true,
+            embed_subtitles: true,
+            archive_assets: Some(ArchiveAssetSelection::none()),
+            ..Default::default()
+        });
+        let tasks =
+            plan_selected_parts(&tree, &[PartId("part:BV1:100".to_owned())], &options).unwrap();
+        assert_eq!(
+            tasks[0]
+                .resources
+                .iter()
+                .map(|resource| resource.intent)
+                .collect::<Vec<_>>(),
+            vec![
+                DownloadResourceIntent::Video,
+                DownloadResourceIntent::Audio,
+                DownloadResourceIntent::Cover,
+                DownloadResourceIntent::Subtitle,
+            ]
+        );
+        assert_eq!(
+            tasks[0].media_selection.processing.unwrap().archive_assets,
+            Some(ArchiveAssetSelection::none())
+        );
+    }
+}
+
+#[test]
 fn plan_selected_parts_returns_actionable_error_when_audio_stream_missing() {
     let tree = fixture_tree(false);
     let options = DownloadOptions::new(PathBuf::from("downloads"));

@@ -699,6 +699,7 @@ fn download_options_from_request(
             .unwrap_or(settings.retain_raw_streams),
         embed_cover: request.embed_cover.unwrap_or(settings.embed_cover),
         embed_subtitles: request.embed_subtitles.unwrap_or(settings.embed_subtitles),
+        archive_assets: None,
     };
     options.processing = Some(processing);
     validate_embedding_container(
@@ -727,6 +728,8 @@ fn download_options_from_request(
         settings,
     )?;
     options.archive_assets = request.archive_assets.unwrap_or(settings.archive_assets);
+    let saved_assets = options.selected_archive_assets();
+    options.processing.as_mut().unwrap().archive_assets = Some(saved_assets);
 
     bdl_core::naming::validate_template(&options.naming_template)?;
     Ok(options)
@@ -768,8 +771,11 @@ fn apply_media_options(
 }
 
 #[tauri::command]
-pub fn queue_list(app: AppHandle, state: State<'_, AppState>) -> CommandResult<Vec<DownloadTask>> {
-    let tasks = state.queue_snapshot()?;
+pub fn queue_list(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<crate::state::QueueTaskSnapshot>> {
+    let tasks = state.queue_snapshot_with_completion()?;
     start_queue_worker(&app);
     Ok(tasks)
 }
@@ -1827,7 +1833,8 @@ async fn run_download_task_inner(
         &latest,
         runtime_options.embed_cover,
         runtime_options.embed_subtitles,
-    );
+    )
+    .await;
     for warning in &attachments.warnings {
         emit_queue_log(app, state, &latest.id, QueueLogLevel::Warning, warning)?;
     }
@@ -1845,12 +1852,16 @@ async fn run_download_task_inner(
                 video_path,
                 audio_path,
                 output_path: latest.output_path.clone(),
-                cover_path: attachments.cover_path,
-                subtitle_paths: attachments.subtitle_paths,
+                cover_path: attachments.cover_path.clone(),
+                subtitle_paths: attachments.subtitle_paths.clone(),
             },
             runtime_options.ffmpeg_path.clone(),
         )
         .await?;
+
+    for warning in crate::media_finalize::cleanup_embedded_sources(&latest, &attachments).await {
+        emit_queue_log(app, state, &latest.id, QueueLogLevel::Warning, &warning)?;
+    }
 
     if !runtime_options.retain_raw_streams {
         cleanup_raw_streams(app, state, &task).await?;

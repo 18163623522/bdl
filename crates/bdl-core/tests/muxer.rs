@@ -196,6 +196,101 @@ async fn media_muxer_skips_unsupported_json_subtitle_embedding() {
     assert!(args.contains("copy"));
 }
 
+#[tokio::test]
+async fn media_muxer_embeds_mkv_cover_as_attachment_and_keeps_srt() {
+    for extension in ["jpg", "png"] {
+        let dir = temp_case_dir("mkv-attachments").await;
+        let record_path = dir.join("args.txt");
+        let ffmpeg = fake_ffmpeg(&dir, &record_path, 0, "").await;
+        let mut request = mux_request(dir.clone());
+        request.output_path = dir.join("output.mkv");
+        request.cover_path = Some(dir.join(format!("thumbnail.{extension}")));
+        request.subtitle_paths = vec![dir.join("subtitle.srt")];
+        MediaMuxer::with_ffmpeg_path(ffmpeg)
+            .mux(&request)
+            .await
+            .unwrap();
+        let args = tokio::fs::read_to_string(record_path).await.unwrap();
+        assert!(args.contains("-attach"));
+        assert!(args.contains(&format!("thumbnail.{extension}")));
+        assert!(args.contains(&format!("filename=cover.{extension}")));
+        assert!(args.contains(if extension == "png" {
+            "mimetype=image/png"
+        } else {
+            "mimetype=image/jpeg"
+        }));
+        assert!(args.contains("subtitle.srt"));
+        assert!(args.contains("-map 2:0"));
+        assert!(!args.contains("attached_pic"));
+        assert!(!args.contains("mov_text"));
+    }
+}
+
+/// Run explicitly with local media paths; never modifies the input files.
+#[tokio::test]
+#[ignore = "requires local FFmpeg/ffprobe and BDL_REAL_MUX_* fixture paths"]
+async fn media_muxer_real_mkv_json_subtitle_and_cover() {
+    let dir = temp_case_dir("real-mkv").await;
+    let video = PathBuf::from(std::env::var_os("BDL_REAL_MUX_VIDEO").unwrap());
+    let cover = PathBuf::from(std::env::var_os("BDL_REAL_MUX_COVER").unwrap());
+    let json = tokio::fs::read_to_string(PathBuf::from(
+        std::env::var_os("BDL_REAL_MUX_SUBTITLE").unwrap(),
+    ))
+    .await
+    .unwrap();
+    let srt = bdl_core::subtitles::bilibili_json_to_srt(&json).unwrap();
+    let subtitle = dir.join("subtitle.srt");
+    tokio::fs::write(&subtitle, srt).await.unwrap();
+    let request = MuxRequest {
+        video_path: Some(video.clone()),
+        audio_path: Some(video),
+        cover_path: Some(cover),
+        subtitle_paths: vec![subtitle],
+        output_path: dir.join("verified.mkv"),
+    };
+    MediaMuxer::new(MediaMuxerConfig::default())
+        .unwrap()
+        .mux(&request)
+        .await
+        .unwrap();
+    let mut probe = std::process::Command::new("ffprobe");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        probe.creation_flags(0x08000000);
+    }
+    let output = probe
+        .args(["-v", "error", "-show_streams", "-of", "json"])
+        .arg(&request.output_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let data: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let streams = data["streams"].as_array().unwrap();
+    assert!(
+        streams
+            .iter()
+            .any(|s| s["codec_name"] == "h264" && s["disposition"]["attached_pic"] == 0)
+    );
+    assert!(streams.iter().any(|s| s["codec_name"] == "aac"));
+    assert!(
+        streams
+            .iter()
+            .any(|s| s["codec_name"] == "subrip" && s["codec_type"] == "subtitle")
+    );
+    assert!(streams.iter().any(|s| s["disposition"]["attached_pic"] == 1
+        && s["tags"]["filename"] == "cover.jpg"
+        && s["tags"]["mimetype"] == "image/jpeg"));
+    println!(
+        "Verified real MKV subtitle and cover: {}",
+        request.output_path.display()
+    );
+}
+
 fn mux_request(dir: PathBuf) -> MuxRequest {
     MuxRequest {
         video_path: Some(dir.join("video.m4s")),

@@ -14,5 +14,6 @@ pub mod queue;
 pub mod resolver;
 pub mod settings;
 pub mod storage;
+pub mod subtitles;
 
 pub use error::{BdlError, BdlResult};

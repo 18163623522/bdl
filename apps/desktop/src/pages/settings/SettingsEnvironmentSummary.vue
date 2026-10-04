@@ -20,33 +20,15 @@ const emit = defineEmits<{
     class="mt-1 grid gap-3 rounded-lg border border-(--color-border) bg-(--color-panel) p-3"
     aria-label="运行环境"
   >
-    <header class="flex min-w-0 items-center justify-between gap-3">
+    <header class="flex min-w-0 flex-wrap items-center justify-between gap-3">
       <div class="flex min-w-0 items-center gap-2">
-        <strong class="text-[13px] text-(--color-text)">运行环境</strong>
-        <span class="text-[11px] text-(--color-muted)">FFmpeg</span>
-      </div>
-      <div class="flex shrink-0 items-center gap-2">
         <UiStatusBadge :status="health?.ffmpeg.status === 'ready' ? 'done' : 'warning'">
-          {{ checking ? '检查中' : health?.ffmpeg.status === 'ready' ? '就绪' : '需要处理' }}
+          {{ checking ? '检查中' : !health ? '未检查' : health.ffmpeg.status === 'ready' ? '就绪' : '需要处理' }}
         </UiStatusBadge>
-        <UiButton size="compact" variant="ghost" :disabled="checking" @click="emit('check')">重新检查</UiButton>
+        <span class="truncate text-xs text-(--color-muted)" :title="health?.ffmpeg.path ?? undefined">{{ health?.ffmpeg.version ?? health?.ffmpeg.message ?? '自动检测系统 FFmpeg' }}</span>
       </div>
+      <UiButton size="compact" variant="ghost" :disabled="checking" @click="emit('check')">重新检查</UiButton>
     </header>
-
-    <div v-if="health" class="grid gap-2">
-      <div class="flex min-w-0 items-center gap-2 rounded-md bg-(--color-surface) p-2">
-        <UIcon name="i-tabler-terminal-2" class="size-4 shrink-0 text-(--color-accent-strong)" aria-hidden="true" />
-        <span class="grid min-w-0 flex-1 gap-px">
-          <strong class="text-xs text-(--color-text)">FFmpeg</strong>
-          <small class="truncate text-[11px] text-(--color-muted)" :title="health.ffmpeg.path ?? undefined">{{
-            health.ffmpeg.version ?? health.ffmpeg.message
-          }}</small>
-        </span>
-        <UiStatusBadge :status="health.ffmpeg.status === 'ready' ? 'done' : 'warning'">
-          {{ health.ffmpeg.status === 'ready' ? '可用' : '异常' }}
-        </UiStatusBadge>
-      </div>
-    </div>
 
     <div v-if="health && health.ffmpeg.status !== 'ready'" class="flex flex-wrap items-center gap-2 border-t border-(--color-border) pt-2">
       <UiButton

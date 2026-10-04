@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  archiveModeOptions,
   audioQualityOptions,
   codecOptions,
   concurrentTaskOptions,
@@ -25,7 +24,6 @@ const optionCatalogs = [
   codecOptions,
   missingQualityOptions,
   segmentCountOptions,
-  archiveModeOptions,
   logLevelOptions,
 ]
 

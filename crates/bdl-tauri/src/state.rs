@@ -80,6 +80,13 @@ pub struct AppState {
     task_execution: TaskExecutionBackend,
 }
 
+#[derive(serde::Serialize)]
+pub struct QueueTaskSnapshot {
+    #[serde(flatten)]
+    pub task: DownloadTask,
+    pub completed_at: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum AccountCookieCache {
     Unloaded,
@@ -892,6 +899,29 @@ impl AppState {
             .lock()
             .map_err(|_| state_poisoned("queue"))?
             .clone())
+    }
+
+    pub fn queue_snapshot_with_completion(&self) -> BdlResult<Vec<QueueTaskSnapshot>> {
+        let tasks = self.queue_snapshot()?;
+        let mut times: HashMap<_, _> = self
+            .storage
+            .lock()
+            .map_err(|_| state_poisoned("storage"))?
+            .load_completed_records()?
+            .into_iter()
+            .map(|record| (record.task_id, record.completed_at))
+            .collect();
+        Ok(tasks
+            .into_iter()
+            .map(|task| {
+                let completed_at = if task.status == TaskStatus::Completed {
+                    times.remove(&task.id)
+                } else {
+                    None
+                };
+                QueueTaskSnapshot { task, completed_at }
+            })
+            .collect())
     }
 
     pub fn task_snapshot(&self, task_id: &str) -> BdlResult<DownloadTask> {
@@ -2847,6 +2877,40 @@ mod tests {
             .expect("matching stream should be selected");
 
         assert_eq!(selected.urls, ["https://cdn.example/video-64-hevc.m4s"]);
+    }
+
+    #[test]
+    fn completed_queue_snapshot_uses_persisted_history_and_keeps_queue_order() {
+        let dir =
+            std::env::temp_dir().join(format!("bdl-completion-times-{}", uuid::Uuid::new_v4()));
+        let mut done = task_with_id("done");
+        done.status = TaskStatus::Completed;
+        let active = task_with_id("active");
+        let state = test_state_with_tasks(&dir, vec![done.clone(), active.clone()]);
+        state.record_completed_task(&done).unwrap();
+        state.record_completed_task(&active).unwrap();
+        let history = state
+            .storage
+            .lock()
+            .unwrap()
+            .load_completed_records()
+            .unwrap();
+        let expected = &history
+            .iter()
+            .find(|r| r.task_id == done.id)
+            .unwrap()
+            .completed_at;
+        let snapshot = state.queue_snapshot_with_completion().unwrap();
+        assert_eq!(snapshot[0].task.id, "done");
+        assert_eq!(snapshot[0].completed_at.as_ref(), Some(expected));
+        assert_eq!(snapshot[1].task.id, "active");
+        assert!(snapshot[1].completed_at.is_none());
+        let serialized = serde_json::to_value(&snapshot[0]).unwrap();
+        assert_eq!(serialized["id"], "done");
+        assert_eq!(serialized["completed_at"], expected.as_str());
+        assert!(serialized.get("task").is_none());
+        drop(state);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn task_with_id(id: &str) -> DownloadTask {
