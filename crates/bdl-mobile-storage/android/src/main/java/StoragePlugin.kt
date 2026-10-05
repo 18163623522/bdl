@@ -43,6 +43,22 @@ class OpenExportArgs {
 }
 
 @InvokeArg
+class DocumentSnapshotArgs {
+  lateinit var document_uri: String
+  lateinit var display_name: String
+  var size: Long = -1
+  var last_modified: Long = -1
+}
+
+@InvokeArg
+class DocumentArgs {
+  lateinit var treeUri: String
+  var documentUri: String? = null
+  var relativePath: String? = null
+  var expected: DocumentSnapshotArgs? = null
+}
+
+@InvokeArg
 class SaveImageArgs {
   lateinit var fileName: String
   lateinit var mimeType: String
@@ -58,6 +74,73 @@ class SaveImageArgs {
   ],
 )
 class StoragePlugin(private val activity: Activity) : Plugin(activity) {
+  @Command
+  fun inspectDocument(invoke: Invoke) = documentCommand(invoke, false)
+
+  @Command
+  fun deleteExportDocument(invoke: Invoke) = documentCommand(invoke, true)
+
+  private fun documentCommand(invoke: Invoke, delete: Boolean) {
+    val args = try { invoke.parseArgs(DocumentArgs::class.java) } catch (error: Exception) {
+      invoke.reject(error.message ?: "文件参数无效"); return
+    }
+    Thread {
+      try {
+        val tree = Uri.parse(args.treeUri)
+        require(!delete || args.documentUri != null) { "删除必须指定已登记的文档标识" }
+        val uri = if (args.documentUri != null) Uri.parse(args.documentUri) else {
+          val parts = relativeParts(args.relativePath ?: throw IllegalArgumentException("缺少文件标识"))
+          var parent = treeRoot(tree)
+          for (segment in parts) {
+            val child = findChild(tree, parent, segment)
+            if (child == null) {
+              val response = JSObject(); response.put("document", org.json.JSONObject.NULL); invoke.resolve(response); return@Thread
+            }
+            parent = child
+          }
+          parent
+        }
+        require(tree.scheme == "content" && uri.scheme == "content" && tree.authority == uri.authority) { "文件不在授权目录中" }
+        val rootId = DocumentsContract.getTreeDocumentId(tree)
+        require(DocumentsContract.getTreeDocumentId(uri) == rootId) { "文件不在授权目录中" }
+        require(DocumentsContract.getDocumentId(uri) != rootId) { "不能删除保存目录" }
+        val document = inspectOwnedDocument(tree, uri)
+        if (delete) {
+          val expected = args.expected ?: throw IllegalArgumentException("缺少文件删除确认")
+          require(expected.document_uri == args.documentUri) { "文件删除确认不匹配" }
+          if (document != null) {
+            require(document.getString("display_name") == expected.display_name &&
+              document.getLong("size") == expected.size && document.getLong("last_modified") == expected.last_modified) { "文件已变化，请重新确认" }
+            check(DocumentsContract.deleteDocument(activity.contentResolver, uri)) { "文件提供程序拒绝删除" }
+          }
+        }
+        val result = JSObject()
+        result.put("document", document ?: org.json.JSONObject.NULL)
+        invoke.resolve(result)
+      } catch (error: SecurityException) {
+        invoke.reject("保存目录权限已失效或没有删除权限，请重新选择目录；任务记录已保留")
+      } catch (error: Exception) { invoke.reject(error.message ?: "无法检查或删除文件，任务记录已保留") }
+    }.start()
+  }
+
+  private fun inspectOwnedDocument(tree: Uri, uri: Uri): JSObject? {
+    val columns = arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE,
+      DocumentsContract.Document.COLUMN_SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED, DocumentsContract.Document.COLUMN_FLAGS)
+    val cursor = try { activity.contentResolver.query(uri, columns, null, null, null) }
+      catch (error: java.io.FileNotFoundException) { return null }
+    check(cursor != null) { "文件提供程序未返回文件信息" }
+    cursor.use {
+      if (!it.moveToFirst()) return null
+      require(it.getString(1) != DocumentsContract.Document.MIME_TYPE_DIR) { "不能删除目录" }
+      require(DocumentsContract.isChildDocument(activity.contentResolver, treeRoot(tree), uri)) { "无法确认文件属于授权目录" }
+      require(!it.isNull(2) && !it.isNull(3)) { "文件提供程序无法核对文件大小和修改时间" }
+      require(it.getInt(4) and DocumentsContract.Document.FLAG_SUPPORTS_DELETE != 0) { "文件提供程序不支持删除此文件" }
+      val result = JSObject()
+      result.put("document_uri", uri.toString()); result.put("display_name", it.getString(0))
+      result.put("size", it.getLong(2)); result.put("last_modified", it.getLong(3))
+      return result
+    }
+  }
   @Command
   fun readClipboardText(invoke: Invoke) {
     try {

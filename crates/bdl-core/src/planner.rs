@@ -447,6 +447,8 @@ fn plan_part(
             },
         ),
         media_selection: DownloadTaskMediaSelection {
+            owned_document_uris: Vec::new(),
+            preserved_document_uris: Vec::new(),
             outputs_verified: false,
             workflow: options.workflow.clone(),
             artifacts,

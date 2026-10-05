@@ -11,10 +11,13 @@ import { useTransferPageLifecycle } from './useTransferPageLifecycle';
 import { useTransferTaskDetail } from './useTransferTaskDetail';
 import { useTransferTaskActions } from './useTransferTaskActions';
 import { isAndroidPlatform, isMobilePlatform } from '../../platform/environment';
+import { queueDeletePreview } from '../../api/tauri';
+import { useFileRemoval } from './useFileRemoval';
 
 export function useTransferPage() {
   const queue = useQueueStore();
   const ui = useUiStore();
+  const removal = useFileRemoval('tasks', queueDeletePreview, (token) => queue.deleteFiles(token));
   const transferCapabilities = { canOpenOutput: !isMobilePlatform() || isAndroidPlatform() };
   const completedSearch = ref('');
   const transferSortByFilter = ref<Partial<Record<QueueFilter, TransferSortMode>>>({});
@@ -47,6 +50,7 @@ export function useTransferPage() {
   const { runTaskAction: handleTaskAction } = useTransferTaskActions(queue, {
     openScheduleDialog,
     openSpeedLimitDialog,
+    openDeletionDialog: (taskId) => removal.show([taskId]),
   });
   const queueFilter = computed({
     get: () => queue.activeFilter,
@@ -186,5 +190,7 @@ export function useTransferPage() {
     closeContextMenu,
     runContextAction,
     contextIcon,
+    runBulkDeleteFiles: () => removal.show(removableTaskIds.value),
+    removal,
   };
 }

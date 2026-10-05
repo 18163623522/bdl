@@ -6,7 +6,7 @@ use bdl_core::account::{
     start_qr_login,
 };
 use bdl_core::fetcher::{
-    FetchCancelToken, FetchConfig, FetchProgress, ProgressSender, ReqwestFetcher, state_path_for,
+    FetchCancelToken, FetchConfig, FetchProgress, ProgressSender, ReqwestFetcher,
 };
 use bdl_core::ids::{PartId, SourceId};
 use bdl_core::model::NormalizedSourceTree;
@@ -1154,15 +1154,14 @@ pub async fn queue_bulk_refresh_urls_and_retry(
 }
 
 #[tauri::command]
-pub fn queue_bulk_remove(
+pub async fn queue_bulk_remove(
     state: State<'_, AppState>,
     request: BulkQueueRequest,
 ) -> CommandResult<BulkQueueResult> {
     let mut result = BulkQueueResult::default();
 
     for task_id in request.task_ids {
-        let _ = state.cancel_running_task(&task_id);
-        match state.remove_task(&task_id) {
+        match state.stop_and_remove_task(&task_id).await {
             Ok(true) => result.removed.push(task_id),
             Ok(false) => result.failed.push(BulkQueueFailure {
                 task_id,
@@ -1179,7 +1178,7 @@ pub fn queue_bulk_remove(
 }
 
 #[tauri::command]
-pub fn queue_clear_completed(state: State<'_, AppState>) -> CommandResult<BulkQueueResult> {
+pub async fn queue_clear_completed(state: State<'_, AppState>) -> CommandResult<BulkQueueResult> {
     let task_ids = state
         .queue_snapshot()?
         .into_iter()
@@ -1188,7 +1187,7 @@ pub fn queue_clear_completed(state: State<'_, AppState>) -> CommandResult<BulkQu
         .collect::<Vec<_>>();
     let request = BulkQueueRequest { task_ids };
 
-    queue_bulk_remove(state, request)
+    queue_bulk_remove(state, request).await
 }
 
 async fn refresh_urls_and_retry(
@@ -1254,13 +1253,58 @@ fn bulk_update_task_status(
 }
 
 #[tauri::command]
-pub fn queue_remove(
+pub async fn queue_remove(
     state: State<'_, AppState>,
     task_id: String,
 ) -> CommandResult<QueueRemoveResponse> {
     Ok(QueueRemoveResponse {
-        removed: state.remove_task(&task_id)?,
+        removed: state.stop_and_remove_task(&task_id).await?,
     })
+}
+
+#[tauri::command]
+pub async fn queue_delete_preview(
+    app: AppHandle,
+    request: BulkQueueRequest,
+) -> CommandResult<crate::file_removal::RemovalPreview> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<AppState>()
+            .preview_task_deletion(&request.task_ids)
+    })
+    .await
+    .map_err(|e| CommandError {
+        code: "cleanup_failed".into(),
+        message: e.to_string(),
+    })?
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn queue_delete_files(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    token: String,
+) -> CommandResult<BulkQueueResult> {
+    let result = state.delete_task_files(&token).await;
+    start_queue_worker(&app);
+    let removed = result?;
+    Ok(BulkQueueResult {
+        removed,
+        ..Default::default()
+    })
+}
+
+#[tauri::command]
+pub async fn maintenance_temp_preview(
+    app: AppHandle,
+) -> CommandResult<crate::file_removal::RemovalPreview> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<AppState>().preview_temp_cleanup())
+        .await
+        .map_err(|e| CommandError {
+            code: "cleanup_failed".into(),
+            message: e.to_string(),
+        })?
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -1390,22 +1434,21 @@ pub async fn maintenance_cleanup_cache(
 
 #[tauri::command]
 pub async fn maintenance_cleanup_temp(
-    state: State<'_, AppState>,
+    app: AppHandle,
+    token: String,
 ) -> CommandResult<MaintenanceResult> {
-    let data_temp_dir = state.data_dir().join("temp");
-    let mut removed_files = remove_dir_contents(&data_temp_dir).await?;
-    for task in state.queue_snapshot()? {
-        for resource in task.resources {
-            removed_files += remove_file_if_exists(&resource.temp_path).await? as usize;
-            removed_files +=
-                remove_file_if_exists(&state_path_for(&resource.temp_path)).await? as usize;
-        }
-    }
-
-    Ok(MaintenanceResult {
-        removed_files,
-        path: state.data_dir().to_string_lossy().into_owned(),
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        Ok(MaintenanceResult {
+            removed_files: state.cleanup_temp_files(&token)?,
+            path: state.data_dir().to_string_lossy().into_owned(),
+        })
     })
+    .await
+    .map_err(|e| CommandError {
+        code: "cleanup_failed".into(),
+        message: e.to_string(),
+    })?
 }
 
 #[tauri::command]
@@ -2072,6 +2115,8 @@ async fn export_task_files(
                 task_id,
                 snapshot.export_target.clone(),
                 snapshot.media_selection.artifacts.clone(),
+                snapshot.media_selection.owned_document_uris.clone(),
+                snapshot.media_selection.preserved_document_uris.clone(),
             )?;
             events::emit(app, events::QUEUE_TASK_UPDATED, &updated).map_err(|error| {
                 BdlError::Platform {
@@ -2112,7 +2157,15 @@ async fn export_task_files(
         duplicate_naming_strategy,
         document_uri: Some(result.document_uri.clone()),
     };
-    let updated = state.update_task_export_target(task_id, Some(updated_target))?;
+    let mut receipt_task = state.task_snapshot(task_id)?;
+    crate::workflow_execution::record_export_ownership(&mut receipt_task, &result);
+    let updated = state.update_task_file_exports(
+        task_id,
+        Some(updated_target),
+        receipt_task.media_selection.artifacts,
+        receipt_task.media_selection.owned_document_uris,
+        receipt_task.media_selection.preserved_document_uris,
+    )?;
     events::emit(app, events::QUEUE_TASK_UPDATED, &updated)?;
 
     if result.outcome == ExportOutcome::SkippedExisting {
@@ -2140,7 +2193,28 @@ async fn export_task_files(
             duplicate_naming_strategy: DuplicateNamingStrategy::OverwriteExisting,
             document_uri: None,
         };
-        export_file_with_storage(state.mobile_storage(), source_path, resource_target).await?;
+        let exported =
+            export_file_with_storage(state.mobile_storage(), source_path.clone(), resource_target)
+                .await?;
+        let mut receipt_task = state.task_snapshot(task_id)?;
+        crate::workflow_execution::record_export_ownership(&mut receipt_task, &exported);
+        receipt_task
+            .media_selection
+            .artifacts
+            .push(bdl_core::workflow::DownloadArtifact {
+                path: source_path,
+                intent: Some(resource.intent),
+                resource_id: Some(resource.id.clone()),
+                original: true,
+                document_uri: Some(exported.document_uri),
+            });
+        state.update_task_file_exports(
+            task_id,
+            receipt_task.export_target,
+            receipt_task.media_selection.artifacts,
+            receipt_task.media_selection.owned_document_uris,
+            receipt_task.media_selection.preserved_document_uris,
+        )?;
     }
 
     emit_queue_log(
@@ -2371,14 +2445,6 @@ fn open_path(app: &AppHandle, path: &Path) -> CommandResult<()> {
             code: "open_path_failed".to_owned(),
             message: format!("打开路径失败：{error}"),
         })
-}
-
-async fn remove_file_if_exists(path: &Path) -> CommandResult<bool> {
-    match fs::remove_file(path).await {
-        Ok(()) => Ok(true),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(BdlError::from(error).into()),
-    }
 }
 
 async fn remove_dir_contents(path: &Path) -> CommandResult<usize> {

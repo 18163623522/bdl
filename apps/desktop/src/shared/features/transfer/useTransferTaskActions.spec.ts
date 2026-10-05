@@ -49,13 +49,16 @@ describe('transfer task actions', () => {
     const dialogs = {
       openScheduleDialog: vi.fn(),
       openSpeedLimitDialog: vi.fn(),
+      openDeletionDialog: vi.fn(),
     };
     const taskActions = useTransferTaskActions(queue(), dialogs);
 
     taskActions.runTaskAction('task:schedule', 'schedule');
     taskActions.runTaskAction('task:speed', 'speed_limit');
+    taskActions.runTaskAction('task:delete', 'delete_files');
 
     expect(dialogs.openScheduleDialog).toHaveBeenCalledWith('task:schedule');
     expect(dialogs.openSpeedLimitDialog).toHaveBeenCalledWith('task:speed');
+    expect(dialogs.openDeletionDialog).toHaveBeenCalledWith('task:delete');
   });
 });

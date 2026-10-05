@@ -21,6 +21,14 @@ pub struct ExportResult {
     pub document_uri: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentSnapshot {
+    pub document_uri: String,
+    pub display_name: String,
+    pub size: u64,
+    pub last_modified: u64,
+}
+
 #[derive(Clone)]
 pub struct MobileStorage {
     backend: Arc<dyn MobileStorageBackend>,
@@ -83,9 +91,44 @@ impl MobileStorage {
     pub fn open_export_directory(&self, target: &DownloadExportTarget) -> BdlResult<()> {
         self.backend.open_export_directory(target)
     }
+
+    pub fn inspect_document(
+        &self,
+        tree_uri: &str,
+        document_uri: &str,
+    ) -> BdlResult<Option<DocumentSnapshot>> {
+        self.backend.inspect_document(tree_uri, document_uri)
+    }
+    pub fn resolve_document(
+        &self,
+        tree_uri: &str,
+        relative_path: &str,
+    ) -> BdlResult<Option<DocumentSnapshot>> {
+        self.backend.resolve_document(tree_uri, relative_path)
+    }
+    pub fn delete_document(&self, tree_uri: &str, expected: &DocumentSnapshot) -> BdlResult<()> {
+        self.backend.delete_document(tree_uri, expected)
+    }
 }
 
 pub trait MobileStorageBackend: Send + Sync {
+    fn resolve_document(
+        &self,
+        _tree_uri: &str,
+        _relative_path: &str,
+    ) -> BdlResult<Option<DocumentSnapshot>> {
+        Err(unsupported_error())
+    }
+    fn inspect_document(
+        &self,
+        _tree_uri: &str,
+        _document_uri: &str,
+    ) -> BdlResult<Option<DocumentSnapshot>> {
+        Err(unsupported_error())
+    }
+    fn delete_document(&self, _tree_uri: &str, _expected: &DocumentSnapshot) -> BdlResult<()> {
+        Err(unsupported_error())
+    }
     fn pick_document_tree(&self) -> BdlResult<DocumentTreeDirectory>;
     fn read_clipboard_text(&self) -> BdlResult<String>;
     fn save_image_to_gallery(

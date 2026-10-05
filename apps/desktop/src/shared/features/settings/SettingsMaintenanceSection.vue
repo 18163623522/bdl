@@ -5,9 +5,13 @@ import UiSelect from '../../ui/Select.vue';
 import UiTextField from '../../ui/TextField.vue';
 import { logLevelOptions } from './settingsCatalog';
 import type { SettingsForm } from './useSettingsForm';
+import { useFileRemoval } from '../transfer/useFileRemoval';
+import FileRemovalDialog from '../transfer/FileRemovalDialog.vue';
+import { maintenanceTempPreview } from '../../api/tauri';
 
 const { form, desktopPaths = true } = defineProps<{ form: SettingsForm; desktopPaths?: boolean }>();
 const { settings, settingsProxyUrl, settingsLogLevel, settingsDataDir } = form;
+const cleanup = useFileRemoval('temp', maintenanceTempPreview, (token) => settings.cleanupTemp(token));
 </script>
 
 <template>
@@ -43,7 +47,7 @@ const { settings, settingsProxyUrl, settingsLogLevel, settingsDataDir } = form;
           class="maintenance-action"
           variant="secondary"
           :disabled="settings.loading || settings.saving"
-          @click="settings.cleanupTemp"
+          @click="cleanup.show()"
           ><UIcon name="i-tabler-eraser" class="size-4" aria-hidden="true" />清理临时文件</UiButton
         >
         <UiButton
@@ -55,6 +59,7 @@ const { settings, settingsProxyUrl, settingsLogLevel, settingsDataDir } = form;
         >
       </div>
     </SettingsCard>
+    <FileRemovalDialog :controller="cleanup" />
   </section>
 </template>
 

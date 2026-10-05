@@ -462,14 +462,9 @@ export const useSettingsStore = defineStore('settings', {
         }
       }
     },
-    async cleanupTemp() {
-      const ui = useUiStore()
-      try {
-        const result = await maintenanceCleanupTemp()
-        this.setNotice(`已清理临时文件 ${result.removed_files} 个`, 'success')
-      } catch (error) {
-        ui.pushToast(errorMessage(error), 'danger')
-      }
+    async cleanupTemp(token: string) {
+      const result = await maintenanceCleanupTemp(token)
+      this.setNotice(`已清理临时文件 ${result.removed_files} 个`, 'success')
     },
     async exportDiagnostics() {
       const ui = useUiStore()

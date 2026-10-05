@@ -8,6 +8,7 @@
 }
 .transfer-footer {
   display: flex;
+  flex-wrap: wrap;
   margin-top: auto;
   align-items: center;
   justify-content: space-between;
@@ -25,6 +26,7 @@
   font-size: var(--mobile-font-body);
 }
 .transfer-footer :deep(.bulk-action-bar.selected) {
+  flex: 1 1 16rem;
   min-height: 1.875rem;
   flex-direction: row;
   flex-wrap: nowrap;
@@ -37,11 +39,11 @@
   display: none;
 }
 .transfer-footer :deep(.bulk-actions) {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   justify-content: flex-end;
-  overflow-x: auto;
 }
 .transfer-footer :deep(.bulk-actions button) {
+  flex-shrink: 0;
   min-height: 1.875rem;
   padding: 0.25rem 0.5rem;
   font-size: var(--mobile-font-body);

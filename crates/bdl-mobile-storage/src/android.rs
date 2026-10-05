@@ -4,7 +4,9 @@ use bdl_core::naming::DuplicateNamingStrategy;
 use bdl_core::queue::DownloadExportTarget;
 use bdl_core::settings::DocumentTreeDirectory;
 use bdl_core::{BdlError, BdlResult};
-use bdl_tauri::mobile_storage::{ExportResult, MobileStorage, MobileStorageBackend};
+use bdl_tauri::mobile_storage::{
+    DocumentSnapshot, ExportResult, MobileStorage, MobileStorageBackend,
+};
 use serde::{Deserialize, Serialize};
 use tauri::{
     Manager, Runtime,
@@ -81,7 +83,70 @@ struct OpenExportPayload<'a> {
     document_uri: Option<&'a str>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DocumentPayload<'a> {
+    tree_uri: &'a str,
+    document_uri: Option<&'a str>,
+    relative_path: Option<&'a str>,
+    expected: Option<&'a DocumentSnapshot>,
+}
+#[derive(Deserialize)]
+struct DocumentResponse {
+    document: Option<DocumentSnapshot>,
+}
+
 impl<R: Runtime> MobileStorageBackend for AndroidStorageBackend<R> {
+    fn inspect_document(
+        &self,
+        tree_uri: &str,
+        document_uri: &str,
+    ) -> BdlResult<Option<DocumentSnapshot>> {
+        self.handle
+            .run_mobile_plugin::<DocumentResponse>(
+                "inspectDocument",
+                DocumentPayload {
+                    tree_uri,
+                    document_uri: Some(document_uri),
+                    relative_path: None,
+                    expected: None,
+                },
+            )
+            .map(|r| r.document)
+            .map_err(|e| platform_error("检查导出文件", e))
+    }
+    fn delete_document(&self, tree_uri: &str, expected: &DocumentSnapshot) -> BdlResult<()> {
+        self.handle
+            .run_mobile_plugin::<serde_json::Value>(
+                "deleteExportDocument",
+                DocumentPayload {
+                    tree_uri,
+                    document_uri: Some(&expected.document_uri),
+                    relative_path: None,
+                    expected: Some(expected),
+                },
+            )
+            .map(|_| ())
+            .map_err(|e| platform_error("删除导出文件", e))
+    }
+    fn resolve_document(
+        &self,
+        tree_uri: &str,
+        relative_path: &str,
+    ) -> BdlResult<Option<DocumentSnapshot>> {
+        self.handle
+            .run_mobile_plugin::<DocumentResponse>(
+                "inspectDocument",
+                DocumentPayload {
+                    tree_uri,
+                    document_uri: None,
+                    relative_path: Some(relative_path),
+                    expected: None,
+                },
+            )
+            .map(|r| r.document)
+            .map_err(|e| platform_error("检查导出文件路径", e))
+    }
     fn pick_document_tree(&self) -> BdlResult<DocumentTreeDirectory> {
         self.handle
             .run_mobile_plugin::<PickDirectoryResponse>("pickDirectory", ())

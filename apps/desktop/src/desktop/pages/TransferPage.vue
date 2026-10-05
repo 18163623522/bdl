@@ -9,6 +9,7 @@ import BulkActionBar from '../../shared/ui/BulkActionBar.vue';
 import TaskInspector from '../../shared/ui/TaskInspector.vue';
 import TransferTaskTable from '../components/transfer/TransferTaskTable.vue';
 import { useTransferPage } from '../../shared/features/transfer/useTransferPage';
+import FileRemovalDialog from '../../shared/features/transfer/FileRemovalDialog.vue';
 const {
   queue,
   ui,
@@ -46,6 +47,8 @@ const {
   runBulkRetry,
   runBulkRefreshRetry,
   runBulkRemove,
+  runBulkDeleteFiles,
+  removal,
   runClearCompleted,
   completedTaskCount,
   emptyTitle,
@@ -131,12 +134,14 @@ const {
           @retry="runBulkRetry"
           @refresh-retry="runBulkRefreshRetry"
           @remove="runBulkRemove"
+          @delete-files="runBulkDeleteFiles"
           @clear-completed="runClearCompleted"
           @refresh="queue.list"
         />
       </footer>
     </section>
 
+    <FileRemovalDialog :controller="removal" />
     <UiDialog v-model="taskDetailOpen" :title="selectedDetailTitle" size="wide">
       <div class="task-detail-dialog">
         <TaskInspector

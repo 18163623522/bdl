@@ -1,6 +1,7 @@
 pub mod commands;
 mod diagnostic_export;
 pub mod events;
+mod file_removal;
 mod media_finalize;
 pub mod media_mux;
 pub mod mobile_storage;

@@ -5,7 +5,7 @@ import { useTransferPage } from './useTransferPage';
 import type { DownloadTask } from '../../api/dto';
 
 vi.mock('./useTransferPageLifecycle', () => ({ useTransferPageLifecycle: vi.fn() }));
-const api = vi.hoisted(() => ({ queueList: vi.fn() }));
+const api = vi.hoisted(() => ({ queueList: vi.fn(), queueDeletePreview: vi.fn() }));
 vi.mock('../../api/tauri', () => api);
 
 const task = (id: string, status: DownloadTask['status'] = 'waiting'): DownloadTask => ({

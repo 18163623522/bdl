@@ -207,6 +207,7 @@ pub(crate) async fn export_manifest(
     else {
         return Ok(task);
     };
+    let already_exported = document_uri.is_some();
     let primary = if let Some(uri) = document_uri {
         crate::mobile_storage::ExportResult {
             relative_path,
@@ -234,6 +235,9 @@ pub(crate) async fn export_manifest(
             artifact.document_uri = Some(primary.document_uri.clone());
         }
     }
+    if !already_exported {
+        record_export_ownership(&mut task, &primary);
+    }
     persist(&task)?;
     let exported_output = PathBuf::from(primary.relative_path);
     for index in 0..task.media_selection.artifacts.len() {
@@ -254,10 +258,28 @@ pub(crate) async fn export_manifest(
             .map_err(|error| BdlError::Platform {
                 message: format!("Android 导出任务异常结束：{error}"),
             })??;
+        record_export_ownership(&mut task, &exported);
         task.media_selection.artifacts[index].document_uri = Some(exported.document_uri);
         persist(&task)?;
     }
     Ok(task)
+}
+
+pub(crate) fn record_export_ownership(
+    task: &mut DownloadTask,
+    result: &crate::mobile_storage::ExportResult,
+) {
+    let uris = match result.outcome {
+        crate::mobile_storage::ExportOutcome::Exported => {
+            &mut task.media_selection.owned_document_uris
+        }
+        crate::mobile_storage::ExportOutcome::SkippedExisting => {
+            &mut task.media_selection.preserved_document_uris
+        }
+    };
+    if !uris.contains(&result.document_uri) {
+        uris.push(result.document_uri.clone());
+    }
 }
 
 #[cfg(test)]

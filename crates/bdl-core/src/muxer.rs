@@ -104,6 +104,7 @@ impl MediaMuxer {
     pub async fn mux(&self, request: &MuxRequest) -> Result<(), MuxError> {
         let ffmpeg_path = ensure_executable(self.ffmpeg_path.clone())?;
         let mut command = hidden_command(ffmpeg_path);
+        command.kill_on_drop(true);
         for arg in ffmpeg_args(request)? {
             command.arg(arg);
         }
@@ -128,6 +129,7 @@ impl MediaMuxer {
             let output_path = args.pop().unwrap();
             args.extend([os("-ar"), os("44100"), output_path]);
             hidden_command(&self.ffmpeg_path)
+                .kill_on_drop(true)
                 .args(args)
                 .output()
                 .await?

@@ -11,6 +11,7 @@ export type TaskActionKind =
   | 'refresh_retry'
   | 'cancel'
   | 'remove'
+  | 'delete_files'
   | 'open_file'
   | 'open_dir'
   | 'copy_source'
@@ -659,7 +660,7 @@ const secondaryActionsForTask = (
   const actions: TaskActionDescriptor[] = []
 
   if (isScheduledTask(task)) {
-    actions.push(actionDescriptor('schedule', '修改时间'), actionDescriptor('speed_limit'), actionDescriptor('cancel'))
+    actions.push(actionDescriptor('schedule', '修改时间'), actionDescriptor('speed_limit'), actionDescriptor('cancel'), actionDescriptor('remove'), actionDescriptor('delete_files'))
     return actions
   }
 
@@ -670,6 +671,7 @@ const secondaryActionsForTask = (
       ...(taskSourcePageAvailable(task) ? [actionDescriptor('open_source')] : []),
       actionDescriptor('copy_source'),
       actionDescriptor('remove'),
+      actionDescriptor('delete_files'),
     )
     return actions.filter((action) => action.kind !== primaryAction)
   }
@@ -678,7 +680,7 @@ const secondaryActionsForTask = (
     actions.push(actionDescriptor('retry'))
     if (task.status === 'failed') actions.push(actionDescriptor('speed_limit'))
     if (capabilities.canOpenOutput) actions.push(actionDescriptor('open_dir'))
-    actions.push(actionDescriptor('remove'))
+    actions.push(actionDescriptor('remove'), actionDescriptor('delete_files'))
     return uniqueActions(actions).filter((action) => action.kind !== primaryAction)
   }
 
@@ -688,16 +690,17 @@ const secondaryActionsForTask = (
       actionDescriptor('speed_limit'),
       actionDescriptor('cancel'),
       actionDescriptor('remove'),
+      actionDescriptor('delete_files'),
     )
     return actions.filter((action) => action.kind !== primaryAction)
   }
 
   if (task.status === 'muxing') {
-    return actions
+    return [actionDescriptor('remove'), actionDescriptor('delete_files')]
   }
 
   if (task.status === 'waiting') actions.push(actionDescriptor('speed_limit'))
-  actions.push(actionDescriptor('cancel'))
+  actions.push(actionDescriptor('cancel'), actionDescriptor('remove'), actionDescriptor('delete_files'))
   return actions.filter((action) => action.kind !== primaryAction)
 }
 
@@ -705,7 +708,7 @@ const actionDescriptor = (kind: Exclude<TaskActionKind, 'none'>, label = actionL
   kind,
   label,
   icon: actionIcon(kind),
-  tone: kind === 'remove' || kind === 'cancel' ? 'danger' : 'normal',
+  tone: kind === 'delete_files' || kind === 'cancel' ? 'danger' : 'normal',
 })
 
 const uniqueActions = (actions: TaskActionDescriptor[]): TaskActionDescriptor[] => {
@@ -727,7 +730,8 @@ const actionLabel = (action: TaskActionKind): string => {
     retry: '重试',
     refresh_retry: '刷新链接并重试',
     cancel: '取消',
-    remove: '删除任务',
+    remove: '移除任务（保留成品）',
+    delete_files: '删除任务及文件',
     open_file: '打开文件',
     open_dir: '打开文件夹',
     copy_source: '复制来源',
@@ -749,6 +753,7 @@ const actionIcon = (action: TaskActionKind): string => {
     refresh_retry: 'refresh',
     cancel: 'x',
     remove: 'trash',
+    delete_files: 'trash',
     open_file: 'file',
     open_dir: 'folder',
     copy_source: 'copy',

@@ -17,6 +17,7 @@ import MobileListHeader from '../components/MobileListHeader.vue';
 import MobileListSearch from '../components/MobileListSearch.vue';
 import { useMobileListSelection } from '../components/useMobileListSelection';
 import { useTransferPage } from '../../shared/features/transfer/useTransferPage';
+import FileRemovalDialog from '../../shared/features/transfer/FileRemovalDialog.vue';
 const {
   queue,
   ui,
@@ -54,6 +55,8 @@ const {
   runBulkRetry,
   runBulkRefreshRetry,
   runBulkRemove,
+  runBulkDeleteFiles,
+  removal,
   runClearCompleted,
   completedTaskCount,
   emptyTitle,
@@ -159,12 +162,14 @@ const beginManaging = (taskId: string) => {
           @retry="runBulkRetry"
           @refresh-retry="runBulkRefreshRetry"
           @remove="runBulkRemove"
+          @delete-files="runBulkDeleteFiles"
           @clear-completed="runClearCompleted"
           @refresh="queue.list"
         />
       </footer>
     </section>
 
+    <FileRemovalDialog :controller="removal" />
     <UiDialog v-model="taskDetailOpen" :title="selectedDetailTitle" size="wide">
       <div class="task-detail-dialog">
         <TaskInspector

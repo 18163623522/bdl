@@ -61,7 +61,7 @@ pub struct AppState {
     parse_control: crate::parse_control::ParseControl,
     resolver_client: Mutex<Option<(u64, Arc<bpi_rs::BpiClient>)>>,
     parse_sources: Mutex<HashMap<SourceId, NormalizedSourceTree>>,
-    queue: Mutex<Vec<DownloadTask>>,
+    pub(crate) queue: Mutex<Vec<DownloadTask>>,
     storage: Mutex<TaskStorage>,
     settings: Mutex<SettingsSnapshot>,
     global_limiter: Arc<BandwidthLimiter>,
@@ -72,7 +72,10 @@ pub struct AppState {
     account_session_revision: AtomicU64,
     queue_worker_active: AtomicBool,
     queue_changed: Notify,
-    queue_cancellations: Mutex<HashMap<String, FetchCancelToken>>,
+    pub(crate) queue_cancellations: Mutex<HashMap<String, FetchCancelToken>>,
+    pub(crate) removals: Mutex<HashSet<String>>,
+    pub(crate) removal_previews: Mutex<crate::file_removal::PreviewStore>,
+    pub(crate) file_cleanup_active: AtomicBool,
     startup_recovery: Mutex<StartupRecoverySnapshot>,
     secure_store: SecureStore,
     mobile_storage: MobileStorage,
@@ -206,6 +209,9 @@ impl AppState {
             queue_worker_active: AtomicBool::new(false),
             queue_changed: Notify::new(),
             queue_cancellations: Mutex::new(HashMap::new()),
+            removals: Default::default(),
+            removal_previews: Default::default(),
+            file_cleanup_active: AtomicBool::new(false),
             startup_recovery: Mutex::new(startup_recovery),
             secure_store,
             mobile_storage,
@@ -503,6 +509,11 @@ impl AppState {
         naming_strategy: DuplicateNamingStrategy,
     ) -> BdlResult<DuplicateTaskEnqueueResult> {
         let mut queue = self.queue.lock().map_err(|_| state_poisoned("queue"))?;
+        if self.file_cleanup_active.load(Ordering::SeqCst) {
+            return Err(BdlError::Planning {
+                message: "正在清理文件，请稍后创建任务。".into(),
+            });
+        }
         let removed_existing_duplicates = dedupe_tasks_by_id(&mut queue);
         let duplicates = duplicate_task_matches(&tasks, &queue);
 
@@ -533,7 +544,17 @@ impl AppState {
         }
 
         let planned_count = tasks.len();
-        let tasks = reserve_queued_paths(tasks, &queue, naming_strategy)?;
+        let mut reservations = queue.clone();
+        let removing = self
+            .removals
+            .lock()
+            .map_err(|_| state_poisoned("removals"))?;
+        for task in &mut reservations {
+            if removing.contains(&task.id) {
+                task.status = TaskStatus::Cancelled;
+            }
+        }
+        let tasks = reserve_queued_paths(tasks, &reservations, naming_strategy)?;
         let skipped_existing = planned_count - tasks.len();
         let inserted = append_new_tasks(&mut queue, tasks);
         if removed_existing_duplicates || !inserted.is_empty() {
@@ -572,15 +593,23 @@ impl AppState {
         now: DateTime<Utc>,
     ) -> BdlResult<Option<DownloadTask>> {
         let mut queue = self.queue.lock().map_err(|_| state_poisoned("queue"))?;
+        if self.file_cleanup_active.load(Ordering::SeqCst) {
+            return Ok(None);
+        }
         // A paused attempt may still be unwinding after an immediate resume.
-        let cancellations = self
+        let mut cancellations = self
             .queue_cancellations
             .lock()
             .map_err(|_| state_poisoned("queue_cancellations"))?;
-        let Some(task_index) = queue
-            .iter()
-            .position(|task| task.can_start_at(now) && !cancellations.contains_key(&task.id))
-        else {
+        let removals = self
+            .removals
+            .lock()
+            .map_err(|_| state_poisoned("removals"))?;
+        let Some(task_index) = queue.iter().position(|task| {
+            task.can_start_at(now)
+                && !cancellations.contains_key(&task.id)
+                && !removals.contains(&task.id)
+        }) else {
             return Ok(None);
         };
 
@@ -588,10 +617,14 @@ impl AppState {
         queue[task_index].scheduled_at = None;
         let task = queue[task_index].clone();
         self.persist_queue(&queue)?;
+        cancellations.insert(task.id.clone(), FetchCancelToken::new());
         Ok(Some(task))
     }
 
     pub fn has_startable_task(&self) -> BdlResult<bool> {
+        if self.file_cleanup_active.load(Ordering::SeqCst) {
+            return Ok(false);
+        }
         Ok(self
             .queue
             .lock()
@@ -629,6 +662,7 @@ impl AppState {
         scheduled_at: Option<DateTime<Utc>>,
     ) -> BdlResult<DownloadTask> {
         let mut queue = self.queue.lock().map_err(|_| state_poisoned("queue"))?;
+        self.ensure_not_removing(task_id)?;
         let task = queue
             .iter_mut()
             .find(|task| task.id == task_id)
@@ -680,6 +714,9 @@ impl AppState {
 
     pub fn update_task_status(&self, task_id: &str, status: TaskStatus) -> BdlResult<DownloadTask> {
         let mut queue = self.queue.lock().map_err(|_| state_poisoned("queue"))?;
+        if status.can_start() {
+            self.ensure_not_removing(task_id)?;
+        }
         let task_index = queue
             .iter()
             .position(|task| task.id == task_id)
@@ -708,12 +745,13 @@ impl AppState {
     }
 
     pub fn register_task_cancel_token(&self, task_id: &str) -> BdlResult<FetchCancelToken> {
-        let token = FetchCancelToken::new();
-        self.queue_cancellations
+        Ok(self
+            .queue_cancellations
             .lock()
             .map_err(|_| state_poisoned("queue_cancellations"))?
-            .insert(task_id.to_owned(), token.clone());
-        Ok(token)
+            .entry(task_id.to_owned())
+            .or_default()
+            .clone())
     }
 
     pub fn cancel_running_task(&self, task_id: &str) -> BdlResult<bool> {
@@ -768,6 +806,7 @@ impl AppState {
 
     pub fn retry_task(&self, task_id: &str) -> BdlResult<DownloadTask> {
         let mut queue = self.queue.lock().map_err(|_| state_poisoned("queue"))?;
+        self.ensure_not_removing(task_id)?;
         let task_index = queue
             .iter()
             .position(|task| task.id == task_id)
@@ -882,15 +921,7 @@ impl AppState {
     }
 
     pub fn remove_task(&self, task_id: &str) -> BdlResult<bool> {
-        let _ = self.cancel_running_task(task_id)?;
-        let mut queue = self.queue.lock().map_err(|_| state_poisoned("queue"))?;
-        let original_len = queue.len();
-        queue.retain(|task| task.id != task_id);
-        let removed = queue.len() != original_len;
-        if removed {
-            self.persist_queue(&queue)?;
-        }
-        Ok(removed)
+        self.remove_idle_task(task_id)
     }
 
     pub fn queue_snapshot(&self) -> BdlResult<Vec<DownloadTask>> {
@@ -1046,6 +1077,8 @@ impl AppState {
         task_id: &str,
         export_target: Option<bdl_core::queue::DownloadExportTarget>,
         artifacts: Vec<bdl_core::workflow::DownloadArtifact>,
+        owned_document_uris: Vec<String>,
+        preserved_document_uris: Vec<String>,
     ) -> BdlResult<DownloadTask> {
         let mut queue = self.queue.lock().map_err(|_| state_poisoned("queue"))?;
         let task = queue
@@ -1056,6 +1089,8 @@ impl AppState {
             })?;
         task.export_target = export_target;
         task.media_selection.artifacts = artifacts;
+        task.media_selection.owned_document_uris = owned_document_uris;
+        task.media_selection.preserved_document_uris = preserved_document_uris;
         let updated = task.clone();
         self.persist_queue(&queue)?;
         Ok(updated)
@@ -1208,7 +1243,7 @@ impl AppState {
         self.account()
     }
 
-    fn persist_queue(&self, queue: &[DownloadTask]) -> BdlResult<()> {
+    pub(crate) fn persist_queue(&self, queue: &[DownloadTask]) -> BdlResult<()> {
         self.storage
             .lock()
             .map_err(|_| state_poisoned("storage"))?
@@ -3054,6 +3089,9 @@ mod tests {
             queue_changed: Notify::new(),
             queue_cancellations: Mutex::new(HashMap::new()),
             startup_recovery: Mutex::new(StartupRecoverySnapshot::default()),
+            removals: Default::default(),
+            removal_previews: Default::default(),
+            file_cleanup_active: AtomicBool::new(false),
             secure_store: SecureStore::in_memory(),
             mobile_storage: crate::mobile_storage::MobileStorage::unsupported(),
             media_mux: crate::media_mux::MediaMuxBackend::platform_default(),

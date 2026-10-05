@@ -176,6 +176,8 @@ export type DownloadTaskRefreshInput =
   | { kind: 'cheese_episode'; ep_id: number }
 
 export interface DownloadTaskMediaSelection {
+  owned_document_uris?: string[]
+  preserved_document_uris?: string[]
   workflow?: DownloadWorkflow | null
   artifacts?: DownloadArtifact[]
   video_quality: string
@@ -307,6 +309,16 @@ export interface NamingPreset {
   id: string
   name: string
   template: string
+}
+
+export interface RemovalPreview {
+  token: string
+  task_ids: string[]
+  files: string[]
+  file_count: number
+  total_bytes: number
+  preserved: string[]
+  roots: string[]
 }
 
 export interface WorkflowMediaInput {

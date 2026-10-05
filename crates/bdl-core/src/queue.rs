@@ -301,6 +301,11 @@ pub struct TaskProcessingOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DownloadTaskMediaSelection {
+    /// SAF receipts distinguish files created here from "skip existing" files.
+    #[serde(default)]
+    pub owned_document_uris: Vec<String>,
+    #[serde(default)]
+    pub preserved_document_uris: Vec<String>,
     #[serde(default)]
     pub outputs_verified: bool,
     #[serde(default)]
@@ -318,6 +323,8 @@ pub struct DownloadTaskMediaSelection {
 impl Default for DownloadTaskMediaSelection {
     fn default() -> Self {
         Self {
+            owned_document_uris: Vec::new(),
+            preserved_document_uris: Vec::new(),
             processing: None,
             workflow: None,
             artifacts: Vec::new(),

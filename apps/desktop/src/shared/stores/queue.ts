@@ -26,6 +26,7 @@ import {
   queuePause,
   queueRefreshUrlsAndRetry,
   queueRemove,
+  queueDeleteFiles,
   queueResume,
   queueSchedule,
   queueSetSpeedLimit,
@@ -454,15 +455,16 @@ export const useQueueStore = defineStore('queue', {
       await this.runBulkCommand(() => queueBulkRefreshUrlsAndRetry({ task_ids: taskIds }), '刷新链接并重试')
     },
     async bulkRemove(taskIds: string[]) {
-      await this.runBulkCommand(() => queueBulkRemove({ task_ids: taskIds }), '已删除', '保留下载文件')
+      await this.runBulkCommand(() => queueBulkRemove({ task_ids: taskIds }), '已移除', '保留成品，已清理临时文件')
     },
     async clearCompleted() {
-      await this.runBulkCommand(() => queueClearCompleted(), '已删除', '保留下载文件')
+      await this.runBulkCommand(() => queueClearCompleted(), '已移除', '保留成品，已清理临时文件')
     },
     async remove(taskId: string) {
       const ui = useUiStore()
       try {
-        await queueRemove(taskId)
+        const result = await queueRemove(taskId)
+        if (!result.removed) throw new Error('任务不存在，请刷新列表')
         this.tasks = this.tasks.filter((task) => task.id !== taskId)
         this.selectedTaskIds = this.selectedTaskIds.filter((selectedTaskId) => selectedTaskId !== taskId)
         delete this.logsByTask[taskId]
@@ -473,9 +475,18 @@ export const useQueueStore = defineStore('queue', {
         if (this.selectedTaskId) {
           void this.loadLogs(this.selectedTaskId)
         }
-        this.setNotice('已删除任务，保留下载文件', 'info')
+        this.setNotice('已移除任务，保留成品，已清理临时文件', 'info')
       } catch (error) {
         ui.pushToast(errorMessage(error), 'danger')
+      }
+    },
+    async deleteFiles(token: string) {
+      try {
+        const result = await queueDeleteFiles(token)
+        this.applyBulkResult(result)
+        this.setNotice(`已删除 ${result.removed.length} 个任务及文件`, 'success')
+      } finally {
+        await this.reconcile()
       }
     },
     async openFile(taskId: string) {

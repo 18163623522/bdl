@@ -32,6 +32,7 @@ const emit = defineEmits<{
   retry: []
   refreshRetry: []
   remove: []
+  deleteFiles: []
   clearCompleted: []
   refresh: []
 }>()
@@ -88,9 +89,10 @@ const moreItems = computed(() => [
       >
         刷新链接并重试
       </UiButton>
-      <UiButton v-if="canRemove" size="compact" variant="danger" title="删除任务记录，保留下载文件" :disabled="loading" @click="emit('remove')"
-        >删除任务</UiButton
+      <UiButton v-if="canRemove" size="compact" variant="secondary" title="移除任务记录并清理临时文件，保留成品" :disabled="loading" @click="emit('remove')"
+        >移除任务</UiButton
       >
+      <UiButton v-if="canRemove" size="compact" variant="danger" :disabled="loading" @click="emit('deleteFiles')">删除任务及文件</UiButton>
     </div>
 
     <div v-else class="bulk-actions">
@@ -101,7 +103,7 @@ const moreItems = computed(() => [
         :disabled="loading || completedCount === 0"
         @click="emit('clearCompleted')"
       >
-        删除已完成任务
+        移除已完成记录
       </UiButton>
       <UiButton size="compact" variant="secondary" :disabled="loading" @click="emit('refresh')">刷新</UiButton>
       <UDropdownMenu

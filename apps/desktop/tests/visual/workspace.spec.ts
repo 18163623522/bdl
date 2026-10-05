@@ -339,6 +339,107 @@ const installTauriMock = async (
   );
 };
 
+test.describe('safe file removal', () => {
+  test.use({ deviceScaleFactor: 2.25 });
+  for (const theme of ['light', 'dark'] as const) {
+    for (const device of ['desktop', 'tablet', 'phone'] as const) {
+      test(`${theme} ${device} previews explicit selection and confirms deletion`, async ({ page }, testInfo) => {
+        await page.setViewportSize(device === 'desktop' ? { width: 1280, height: 800 } : device === 'tablet' ? { width: 568, height: 356 } : { width: 320, height: 844 });
+        if (device !== 'desktop') await page.addInitScript(() => Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (Linux; Android 12) Mobile' }));
+        await installTauriMock(page, theme, true, true);
+        await page.addInitScript(() => {
+          const target = window as unknown as {
+            __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
+            __REMOVAL_CALLS__: Array<{ command: string; args?: Record<string, unknown> }>;
+          };
+          target.__REMOVAL_CALLS__ = [];
+          let tasks = ['selected', 'unselected'].map((id) => ({
+            id, title: id === 'selected' ? '待删除任务' : '需要保留的任务', source_id: 'video:fixture', status: 'completed', resources: [],
+            output_path: `downloads/${'很长的中文下载目录/'.repeat(20)}${id}.mp4`, media_selection: null, scheduled_at: null, speed_limit_bytes_per_second: null,
+          }));
+          let selectedIds: string[] = [];
+          let failedOnce = false;
+          const invoke = target.__TAURI_INTERNALS__.invoke;
+          target.__TAURI_INTERNALS__.invoke = async (command, args) => {
+            target.__REMOVAL_CALLS__.push({ command, args });
+            if (command === 'queue_list') return tasks;
+            if (command === 'queue_logs') return [];
+            if (command === 'queue_delete_preview') {
+              selectedIds = (args?.request as { task_ids: string[] }).task_ids;
+              return { token: 'fixture-confirmation', task_ids: selectedIds, files: tasks.filter((t) => selectedIds.includes(t.id)).map((t) => t.output_path), file_count: selectedIds.length, total_bytes: 8192, preserved: ['其他任务仍在使用：shared.mp4'], roots: [] };
+            }
+            if (command === 'queue_delete_files') {
+              if (!failedOnce) { failedOnce = true; throw { code: 'cleanup_failed', message: '文件被占用，请关闭播放器后重新确认' }; }
+              tasks = tasks.filter((t) => !selectedIds.includes(t.id));
+              return { updated: [], removed: selectedIds, failed: [] };
+            }
+            if (command === 'maintenance_temp_preview') return { token: 'temp-confirmation', task_ids: [], files: ['downloads/orphan.video.m4s.bdlpart.seg0'], file_count: 1, total_bytes: 4096, preserved: ['仍有任务使用的文件'], roots: ['downloads'] };
+            if (command === 'maintenance_cleanup_temp') return { removed_files: 1, path: 'downloads' };
+            return invoke(command, args);
+          };
+        });
+        await page.goto('/');
+        await page.getByRole('button', { name: /传输/ }).click();
+        await page.getByRole('tab', { name: /全部/ }).click();
+        const row = page.getByRole('list', { name: '传输任务', includeHidden: true }).getByRole('listitem', { includeHidden: true }).filter({ hasText: '待删除任务' });
+        await row.getByRole('button', { name: /更多操作/ }).click();
+        await page.getByRole(device === 'desktop' ? 'menuitem' : 'button', { name: '删除任务及文件', exact: true }).click();
+        const dialog = page.getByRole('dialog', { name: '删除任务及文件', exact: true });
+        await expect(dialog.getByText(/1 个成品或附件/)).toBeVisible();
+        const deletionCalls = () => page.evaluate(() => (window as unknown as { __REMOVAL_CALLS__: Array<{ command: string }> }).__REMOVAL_CALLS__.filter((c) => c.command === 'queue_delete_files').length);
+        expect(await deletionCalls()).toBe(0);
+        await dialog.getByRole('button', { name: '取消', exact: true }).click();
+        await expect(dialog).toBeHidden(); expect(await deletionCalls()).toBe(0);
+        if (device !== 'desktop') await page.getByRole('button', { name: '管理任务', exact: true }).click();
+        await row.getByRole('checkbox').check();
+        if (device !== 'desktop') {
+          const toolbar = page.locator('.transfer-footer .bulk-actions');
+          expect(await toolbar.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+          for (const button of await toolbar.getByRole('button').all()) {
+            expect(await button.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+          }
+        }
+        await page.locator('.bulk-action-bar').getByRole('button', { name: '删除任务及文件', exact: true }).click();
+        await expect(dialog.getByText(/1 个成品或附件/)).toBeVisible();
+        await dialog.getByText('查看将删除的文件', { exact: true }).click();
+        await expect(dialog.getByText(/selected.mp4/, { exact: false })).toBeVisible();
+        expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+        const box = (await dialog.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(15); expect(box.y).toBeGreaterThanOrEqual(15);
+        expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width - 15);
+        expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height - 15);
+        await page.screenshot({ path: testInfo.outputPath(`file-removal-${device}-${theme}.png`) });
+        await dialog.getByRole('button', { name: '确认删除任务及文件', exact: true }).click();
+        await expect(dialog.getByText(/文件被占用/)).toBeVisible();
+        await expect(dialog.getByRole('button', { name: '确认删除任务及文件', exact: true })).toBeDisabled();
+        await expect(row).toBeVisible();
+        await dialog.getByRole('button', { name: '重新查看文件', exact: true }).click();
+        await dialog.getByRole('button', { name: '确认删除任务及文件', exact: true }).click();
+        await expect(dialog).toBeHidden(); await expect(row).toHaveCount(0);
+        await expect(page.getByText('需要保留的任务', { exact: true })).toBeVisible();
+        const previews = await page.evaluate(() => (window as unknown as { __REMOVAL_CALLS__: Array<{ command: string; args?: { request?: { task_ids: string[] } } }> }).__REMOVAL_CALLS__.filter((c) => c.command === 'queue_delete_preview').map((c) => c.args?.request?.task_ids));
+        expect(previews.every((ids) => JSON.stringify(ids) === '["selected"]')).toBe(true);
+        if (device === 'desktop') {
+          await page.getByRole('button', { name: '设置 偏好与维护' }).click();
+          await page.getByRole('button', { name: /网络与维护/ }).click();
+        } else {
+          await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '我的', exact: true }).click();
+          await page.getByRole('button', { name: /清理与维护/ }).click();
+        }
+        await page.getByRole('button', { name: '清理临时文件', exact: true }).click();
+        const cleanup = page.getByRole('dialog', { name: '清理临时文件', exact: true });
+        await expect(cleanup.getByText(/1 个临时文件/)).toBeVisible();
+        await cleanup.getByRole('button', { name: '取消', exact: true }).click();
+        const tempCalls = () => page.evaluate(() => (window as unknown as { __REMOVAL_CALLS__: Array<{ command: string }> }).__REMOVAL_CALLS__.filter((c) => c.command === 'maintenance_cleanup_temp').length);
+        expect(await tempCalls()).toBe(0);
+        await page.getByRole('button', { name: '清理临时文件', exact: true }).click();
+        await cleanup.getByRole('button', { name: '确认清理', exact: true }).click();
+        await expect(cleanup).toBeHidden(); expect(await tempCalls()).toBe(1);
+      });
+    }
+  }
+});
+
 test('mobile shell keeps navigation and downloads usable without desktop steps', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {

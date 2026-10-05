@@ -17,6 +17,7 @@ import type {
   QrLoginSession,
   QueueLogEntry,
   QueueRemoveResponse,
+  RemovalPreview,
   ArchiveMode,
   DownloadMediaMode,
   SettingsSnapshot,
@@ -221,6 +222,11 @@ export const queueClearCompleted = () => invokeCommand<BulkQueueResult>('queue_c
 
 export const queueRemove = (taskId: string) => invokeCommand<QueueRemoveResponse>('queue_remove', { taskId })
 
+export const queueDeletePreview = (taskIds: string[]) =>
+  invokeCommand<RemovalPreview>('queue_delete_preview', { request: { task_ids: taskIds } })
+export const queueDeleteFiles = (token: string) => invokeCommand<BulkQueueResult>('queue_delete_files', { token })
+export const maintenanceTempPreview = () => invokeCommand<RemovalPreview>('maintenance_temp_preview')
+
 export const queueOpenFile = (taskId: string) => invokeCommand<void>('queue_open_file', { taskId })
 
 export const queueOutputSizes = (taskIds: string[]) =>
@@ -258,7 +264,7 @@ export const environmentCreateDownloadDirectory = (path: string) =>
 
 export const maintenanceCleanupCache = () => invokeCommand<MaintenanceResult>('maintenance_cleanup_cache')
 
-export const maintenanceCleanupTemp = () => invokeCommand<MaintenanceResult>('maintenance_cleanup_temp')
+export const maintenanceCleanupTemp = (token: string) => invokeCommand<MaintenanceResult>('maintenance_cleanup_temp', { token })
 
 export const diagnosticsExport = () => invokeCommand<DiagnosticsExportResponse>('diagnostics_export')
 
