@@ -135,6 +135,29 @@ fn validate_ancestors(path: &Path) -> BdlResult<()> {
     for ancestor in path.ancestors() {
         match fs::symlink_metadata(ancestor) {
             Ok(metadata) if is_link(&metadata) => {
+                // macOS installs these root-owned aliases itself. Temporary
+                // paths commonly use /var, so rejecting them blocks ordinary
+                // file cleanup. Only the exact platform alias is permitted.
+                #[cfg(target_os = "macos")]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    let expected = match ancestor.to_str() {
+                        Some("/var") => Some(Path::new("/private/var")),
+                        Some("/tmp") => Some(Path::new("/private/tmp")),
+                        _ => None,
+                    };
+                    if let Some(expected) = expected {
+                        let destination = fs::read_link(ancestor)?;
+                        let destination = if destination.is_absolute() {
+                            destination
+                        } else {
+                            Path::new("/").join(destination)
+                        };
+                        if metadata.uid() == 0 && destination == expected {
+                            continue;
+                        }
+                    }
+                }
                 // Android's root-owned, platform-managed user-zero alias is part
                 // of app_data_dir. Do not generalize this to user-created links.
                 #[cfg(target_os = "android")]
@@ -1036,6 +1059,30 @@ mod tests {
     }
     fn write(path: &Path) {
         fs::write(path, b"fixture payload").unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_system_temp_aliases_allow_files_but_user_links_are_rejected() {
+        use std::os::unix::fs::symlink;
+        for alias in ["/var/tmp", "/tmp"] {
+            let root = Path::new(alias).join(format!("bdl-removal-alias-{}", uuid::Uuid::new_v4()));
+            fs::create_dir(&root).unwrap();
+            let file = root.join("owned.bdlpart");
+            write(&file);
+            let owned = LocalFile {
+                path: file.clone(),
+                stamp: stamp(&file).unwrap().unwrap(),
+            };
+            let link = root.join("user-link");
+            symlink(&root, &link).unwrap();
+            assert!(stamp(&link.join("owned.bdlpart")).is_err());
+            assert!(file.exists());
+            assert!(delete_file(&owned).unwrap());
+            assert!(!file.exists());
+            fs::remove_file(link).unwrap();
+            fs::remove_dir(root).unwrap();
+        }
     }
 
     #[derive(Clone, Default)]
