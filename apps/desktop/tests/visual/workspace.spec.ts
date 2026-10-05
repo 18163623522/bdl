@@ -764,6 +764,40 @@ test('renders dynamic icon buttons before paint without Iconify network access',
   expect(samples.some(({ buttons, icons }) => icons < buttons)).toBe(false);
 });
 
+for (const width of [375, 900, 1280]) {
+  test(`appearance hover labels follow theme selection at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    if (width === 375) {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (Linux; Android 12) Mobile' });
+      });
+    }
+    await installTauriMock(page, 'dark');
+    await page.goto('/');
+    if (width === 375) {
+      await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '我的' }).click();
+    }
+    const appearance = page.getByRole('button', { name: /^外观：/ });
+    await expect(appearance).toHaveAttribute('title', '外观：深色');
+    for (const label of ['跟随系统', '浅色', '深色']) {
+      await appearance.focus();
+      await appearance.press('Enter');
+      const item = page.getByRole('menuitemcheckbox', { name: label, exact: true });
+      await expect(item).toBeVisible();
+      await item.focus();
+      await item.press('Enter');
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('menu')).not.toBeVisible();
+      await expect(appearance).toBeFocused();
+      await appearance.hover();
+      await expect(appearance).toHaveAttribute('title', `外观：${label}`);
+      await expect(appearance).toHaveAccessibleName(`外观：${label}`);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', label === '深色' ? 'dark' : 'light');
+      await page.screenshot({ path: testInfo.outputPath(`appearance-${width}-${label}.png`) });
+    }
+  });
+}
+
 for (const theme of ['light', 'dark'] as const) {
   for (const viewport of [
     { name: 'standard', width: 1280, height: 800 },

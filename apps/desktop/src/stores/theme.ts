@@ -35,9 +35,9 @@ export const useThemeStore = defineStore('theme', {
     },
     preferenceLabel(state): string {
       const labels: Record<ThemePreference, string> = {
-        system: '璺熼殢绯荤粺',
-        light: '娴呰壊',
-        dark: '娣辫壊',
+        system: '跟随系统',
+        light: '浅色',
+        dark: '深色',
       }
       return labels[state.preference]
     },
