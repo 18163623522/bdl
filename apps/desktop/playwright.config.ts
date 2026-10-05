@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+const productionPreview = process.env.BDL_VISUAL_PRODUCTION === '1';
+
 export default defineConfig({
   testDir: './tests/visual',
   fullyParallel: false,
@@ -15,9 +17,11 @@ export default defineConfig({
     reducedMotion: 'reduce',
   },
   webServer: {
-    command: 'pnpm dev --host 127.0.0.1 --port 4173',
+    command: productionPreview
+      ? 'pnpm exec vite preview --host 127.0.0.1 --port 4173 --strictPort'
+      : 'pnpm dev --host 127.0.0.1 --port 4173',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: !process.env.CI && !productionPreview,
     timeout: 120_000,
   },
 });

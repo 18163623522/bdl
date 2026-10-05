@@ -16,7 +16,7 @@ use reqwest::header::{
 use reqwest::{Client, Proxy, StatusCode};
 use serde::{Deserialize, Serialize};
 use tokio::fs::{self, OpenOptions};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{Mutex, Notify};
 use tokio::time::Instant;
@@ -565,19 +565,28 @@ impl ReqwestFetcher {
             .truncate(true)
             .open(&resource.temp_path)
             .await?;
-        for index in 0..ranges.len() {
+        for (index, (start, end)) in ranges.iter().enumerate() {
             let segment_path = segment_path_for(&resource.temp_path, index);
             let mut segment_file = fs::File::open(&segment_path).await?;
-            tokio::io::copy(&mut segment_file, &mut temp_file).await?;
-            remove_if_exists(&segment_path).await?;
+            let copied = tokio::io::copy(&mut segment_file, &mut temp_file).await?;
+            if copied != end - start + 1 {
+                return Err(fetch_error("分段文件长度异常，已停止拼接，请重试下载。"));
+            }
         }
         temp_file.flush().await?;
         drop(temp_file);
+
+        if fs::metadata(&resource.temp_path).await?.len() != total_bytes {
+            return Err(fetch_error("拼接后的文件长度异常，请重试下载。"));
+        }
 
         if resource.target_path.exists() {
             fs::remove_file(&resource.target_path).await?;
         }
         fs::rename(&resource.temp_path, &resource.target_path).await?;
+        for index in 0..ranges.len() {
+            remove_if_exists(&segment_path_for(&resource.temp_path, index)).await?;
+        }
         remove_if_exists(&state_path_for(&resource.temp_path)).await?;
 
         Ok(FetchOutcome {
@@ -836,9 +845,61 @@ fn cancelled_error() -> BdlError {
 }
 
 pub fn state_path_for(temp_path: &Path) -> PathBuf {
+    auxiliary_path_for(temp_path, ".state")
+}
+
+// Keep existing short-path checkpoints compatible. Long title paths leave too
+// little room for suffixes on some Android runtimes; use an internal stable ID.
+fn auxiliary_path_for(temp_path: &Path, suffix: &str) -> PathBuf {
     let mut value = OsString::from(temp_path.as_os_str());
-    value.push(".state");
-    PathBuf::from(value)
+    value.push(suffix);
+    if value.as_encoded_bytes().len() <= 240 {
+        return PathBuf::from(value);
+    }
+    let id = uuid::Uuid::new_v5(
+        &uuid::Uuid::NAMESPACE_OID,
+        temp_path.as_os_str().as_encoded_bytes(),
+    );
+    temp_path.with_file_name(format!(".bdl-{id}{suffix}"))
+}
+
+/// Completed media may come from an older corrupted segmented download. Only
+/// those inputs need fetching again; valid completed tracks remain reusable.
+pub async fn completed_media_needs_redownload(resource: &DownloadResource) -> BdlResult<bool> {
+    if resource.status != crate::queue::ResourceStatus::Completed
+        || !matches!(
+            resource.intent,
+            crate::queue::DownloadResourceIntent::Video
+                | crate::queue::DownloadResourceIntent::Audio
+        )
+    {
+        return Ok(false);
+    }
+    let Ok(mut file) = fs::File::open(&resource.target_path).await else {
+        return Ok(true);
+    };
+    let mut header = [0; 16];
+    let count = file.read(&mut header).await?;
+    let bytes = &header[..count];
+    let iso_bmff = bytes.len() >= 8
+        && matches!(
+            &bytes[4..8],
+            b"ftyp" | b"styp" | b"moov" | b"moof" | b"sidx" | b"free" | b"skip" | b"mdat"
+        );
+    let other_container = [
+        b"FLV".as_slice(),
+        b"ID3",
+        b"OggS",
+        b"fLaC",
+        b"RIFF",
+        &[0x1a, 0x45, 0xdf, 0xa3],
+        &[0, 0, 1],
+        &[0, 0, 0, 1],
+    ]
+    .iter()
+    .any(|prefix| bytes.starts_with(prefix));
+    let audio_frame = bytes.len() >= 2 && bytes[0] == 0xff && bytes[1] & 0xe0 == 0xe0;
+    Ok(!(iso_bmff || other_container || audio_frame))
 }
 
 fn should_fetch_segmented(
@@ -917,10 +978,8 @@ fn segment_ranges(total_bytes: u64, segment_count: usize) -> Vec<(u64, u64)> {
     ranges
 }
 
-fn segment_path_for(temp_path: &Path, index: usize) -> PathBuf {
-    let mut value = OsString::from(temp_path.as_os_str());
-    value.push(format!(".seg{index}"));
-    PathBuf::from(value)
+pub fn segment_path_for(temp_path: &Path, index: usize) -> PathBuf {
+    auxiliary_path_for(temp_path, &format!(".seg{index}"))
 }
 
 async fn resume_offset(temp_path: &Path, metadata: &RemoteResourceMetadata) -> BdlResult<u64> {

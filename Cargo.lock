@@ -327,7 +327,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bdl-cli"
-version = "0.6.6"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "bdl-core",
@@ -340,7 +340,7 @@ dependencies = [
 
 [[package]]
 name = "bdl-core"
-version = "0.6.6"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "bpi-rs",
@@ -363,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "bdl-desktop"
-version = "0.6.6"
+version = "0.7.0"
 dependencies = [
  "bdl-mobile-credentials",
  "bdl-mobile-execution",
@@ -381,7 +381,7 @@ dependencies = [
 
 [[package]]
 name = "bdl-mobile-credentials"
-version = "0.6.6"
+version = "0.7.0"
 dependencies = [
  "bdl-core",
  "bdl-tauri",
@@ -393,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "bdl-mobile-execution"
-version = "0.6.6"
+version = "0.7.0"
 dependencies = [
  "bdl-core",
  "bdl-tauri",
@@ -405,7 +405,7 @@ dependencies = [
 
 [[package]]
 name = "bdl-mobile-media"
-version = "0.6.6"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "bdl-core",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "bdl-mobile-storage"
-version = "0.6.6"
+version = "0.7.0"
 dependencies = [
  "bdl-core",
  "bdl-tauri",
@@ -430,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "bdl-tauri"
-version = "0.6.6"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "bdl-core",
@@ -4356,6 +4356,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5602,6 +5608,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

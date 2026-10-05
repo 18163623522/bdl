@@ -189,10 +189,21 @@ const syncAndroidIcons = () => {
   }
 }
 
+const syncAndroidActivity = () => {
+  if (process.argv[2] !== 'android') return
+  const targetDir = path.join(desktopDir, 'src-tauri', 'gen', 'android', 'app', 'src', 'main', 'java', 'com', 'yueli', 'bdl')
+  if (!fs.existsSync(targetDir)) return
+  const source = path.join(desktopDir, 'src-tauri', 'android', 'MainActivity.kt')
+  const target = path.join(targetDir, 'MainActivity.kt')
+  const content = fs.readFileSync(source, 'utf8')
+  if (!fs.existsSync(target) || fs.readFileSync(target, 'utf8') !== content) fs.writeFileSync(target, content)
+}
+
 configureAndroidJava()
 configureAndroidPackaging()
 configureAndroidReleaseProguard()
 configureAndroidReleaseSigning()
 syncAndroidIcons()
+syncAndroidActivity()
 
 await import('@tauri-apps/cli/tauri.js')

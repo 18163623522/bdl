@@ -41,4 +41,37 @@ export default tseslint.config(
       },
     },
   },
+  {
+    files: ['src/shared/**/*.{ts,vue}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['**/desktop/**', '**/mobile/**', '**/app/**'],
+          message: 'Shared modules must not import platform views or application orchestration.',
+        }],
+      }],
+    },
+  },
+  {
+    files: ['src/desktop/**/*.{ts,vue}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['**/mobile/**', '**/app/AppWorkspace*'],
+          message: 'Desktop views depend on shared modules, not mobile views or application orchestration.',
+        }],
+      }],
+    },
+  },
+  {
+    files: ['src/mobile/**/*.{ts,vue}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['**/desktop/**', '**/app/AppWorkspace*'],
+          message: 'Mobile views depend on shared modules, not desktop views or application orchestration.',
+        }],
+      }],
+    },
+  },
 )

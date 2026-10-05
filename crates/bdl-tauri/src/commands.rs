@@ -1829,8 +1829,19 @@ async fn run_download_task_inner(
             )?;
             return Ok(());
         }
-        if !resource.status.can_start() {
+        let invalid_completed_media =
+            bdl_core::fetcher::completed_media_needs_redownload(resource).await?;
+        if !resource.status.can_start() && !invalid_completed_media {
             continue;
+        }
+        if invalid_completed_media {
+            emit_queue_log(
+                app,
+                state,
+                &task.id,
+                QueueLogLevel::Warning,
+                "已完成的媒体输入无效，重新下载该轨道",
+            )?;
         }
 
         let updated =

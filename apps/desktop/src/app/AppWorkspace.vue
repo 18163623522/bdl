@@ -1,22 +1,22 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent } from 'vue';
-import { useUiStore } from '../stores/ui';
-import BackgroundParseStatus from '../ui/BackgroundParseStatus.vue';
+import { useUiStore } from '../shared/stores/ui';
+import BackgroundParseStatus from '../shared/ui/BackgroundParseStatus.vue';
 const { mobile = false } = defineProps<{ mobile?: boolean }>();
 const ui = useUiStore();
 const desktopPages = {
-  parse: defineAsyncComponent(() => import('../pages/ParsePage.vue')),
-  library: defineAsyncComponent(() => import('../pages/LibraryPage.vue')),
-  transfer: defineAsyncComponent(() => import('../pages/TransferPage.vue')),
-  settings: defineAsyncComponent(() => import('../pages/SettingsPage.vue')),
-  about: defineAsyncComponent(() => import('../pages/AboutPage.vue')),
+  parse: defineAsyncComponent(() => import('../desktop/pages/ParsePage.vue')),
+  library: defineAsyncComponent(() => import('../desktop/pages/LibraryPage.vue')),
+  transfer: defineAsyncComponent(() => import('../desktop/pages/TransferPage.vue')),
+  settings: defineAsyncComponent(() => import('../desktop/pages/SettingsPage.vue')),
+  about: defineAsyncComponent(() => import('../desktop/pages/AboutPage.vue')),
 };
 const mobilePages = {
-  parse: defineAsyncComponent(() => import('../pages/mobile/ParsePage.vue')),
-  library: defineAsyncComponent(() => import('../pages/mobile/LibraryPage.vue')),
-  transfer: defineAsyncComponent(() => import('../pages/mobile/TransferPage.vue')),
-  settings: defineAsyncComponent(() => import('../pages/mobile/PersonalPage.vue')),
-  about: defineAsyncComponent(() => import('../pages/mobile/AboutPage.vue')),
+  parse: defineAsyncComponent(() => import('../mobile/pages/ParsePage.vue')),
+  library: defineAsyncComponent(() => import('../mobile/pages/LibraryPage.vue')),
+  transfer: defineAsyncComponent(() => import('../mobile/pages/TransferPage.vue')),
+  settings: defineAsyncComponent(() => import('../mobile/pages/PersonalPage.vue')),
+  about: defineAsyncComponent(() => import('../mobile/pages/AboutPage.vue')),
 };
 const activePageComponent = computed(() => (mobile ? mobilePages : desktopPages)[ui.activeTab]);
 </script>
@@ -107,8 +107,7 @@ const activePageComponent = computed(() => (mobile ? mobilePages : desktopPages)
 }
 
 .main-region.workspace-mobile {
-  grid-column: 1;
-  grid-row: 2;
+  grid-area: workspace;
   padding: 0;
 }
 </style>

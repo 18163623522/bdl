@@ -6,12 +6,12 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import localIcons from 'virtual:bdl-icon-bundle'
 
 import App from './App.vue'
-import { useThemeStore } from './stores/theme'
-import './styles/nuxt-ui.css'
-import './styles/tokens.css'
-import './styles/feedback.css'
-import './styles/forms.css'
-import './styles/base.css'
+import { useThemeStore } from './shared/stores/theme'
+import './shared/styles/nuxt-ui.css'
+import './shared/styles/tokens.css'
+import './shared/styles/feedback.css'
+import './shared/styles/forms.css'
+import './shared/styles/base.css'
 
 addCollection(localIcons)
 

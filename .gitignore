@@ -65,3 +65,6 @@ apps/**/src-tauri/downloads/
 
 # Local Distribution publishing tools and configuration
 /local-release/
+
+# Local support scripts, QR sessions and login credentials
+/local-test/

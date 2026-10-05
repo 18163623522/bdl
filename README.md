@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/Yuelioi/bdl?display_name=tag&sort=semver)](https://github.com/Yuelioi/bdl/releases/latest) [![License](https://img.shields.io/github/license/Yuelioi/bdl)](LICENSE)
 
-BDL 是一款本地优先的哔哩哔哩下载工具，支持桌面端和 Android 手机端。
+BDL 是一款本地优先的哔哩哔哩下载工具，支持桌面端和 Android 手机、平板。
 
 ## 能做什么
 
@@ -11,6 +11,7 @@ BDL 是一款本地优先的哔哩哔哩下载工具，支持桌面端和 Androi
 - 暂停、继续、断点续传和失败重试；下载完成后可合并音视频，并保存字幕、封面和弹幕。
 - 使用快速下载、下载全部资源、封装 MKV（视频+字幕）预设，或自定义仅字幕、仅音频等内容与输出组合。
 - 登录后在内容库中浏览自己的收藏夹和订阅合集。设置与任务数据保存在本机。
+- Android 根据窗口适配手机、平板、横屏和分屏，提供侧栏布局、紧凑列表与限宽操作弹窗。
 
 ## 下载
 
@@ -26,6 +27,8 @@ BDL 是一款本地优先的哔哩哔哩下载工具，支持桌面端和 Androi
 文件名包含 `bdl-cli` 的压缩包是独立命令行工具，双击不会打开图形界面。需要命令行时请看 [CLI 使用指南](docs/CLI.md)。
 
 桌面端需要 FFmpeg 来合并音视频或转为 MP3；安装后可在“设置 → 下载”中指定 FFmpeg 路径。Android 版已内置 FFmpeg。
+
+macOS 安装包使用 ad-hoc 签名，未经 Apple Developer ID 签名与公证；首次打开请按下方“故障处理”中的单应用操作指引执行。
 
 ## 如何使用
 

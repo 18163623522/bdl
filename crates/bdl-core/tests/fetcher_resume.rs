@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bdl_core::fetcher::{
     BandwidthLimiter, FetchCancelToken, FetchConfig, FetchState, Fetcher, ReqwestFetcher,
-    state_path_for, write_fetch_state,
+    completed_media_needs_redownload, segment_path_for, state_path_for, write_fetch_state,
 };
 use bdl_core::model::HeaderPair;
 use bdl_core::queue::{
@@ -59,6 +59,84 @@ async fn fetcher_downloads_full_resource_and_sends_headers() {
         headers.get("cookie").map(String::as_str),
         Some("SESSDATA=test")
     );
+}
+
+#[tokio::test]
+async fn long_unicode_title_keeps_segments_distinct_and_downloads_exact_bytes() {
+    let data = (0..67).collect::<Vec<u8>>();
+    let server = TestServer::spawn(data.clone(), 0).await;
+    let dir = temp_case_dir("long-title").await;
+    let resource = resource(
+        server.url(),
+        &dir,
+        &format!("{}.m4s", "中秋家传一味".repeat(10)),
+    );
+    assert!(resource.temp_path.as_os_str().as_encoded_bytes().len() > 240);
+    let paths = (0..4)
+        .map(|index| segment_path_for(&resource.temp_path, index))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        paths.iter().collect::<std::collections::HashSet<_>>().len(),
+        4
+    );
+    for path in paths
+        .iter()
+        .chain(std::iter::once(&state_path_for(&resource.temp_path)))
+    {
+        assert!(path.as_os_str().as_encoded_bytes().len() < 240);
+    }
+    let fetcher = ReqwestFetcher::with_config(FetchConfig {
+        max_retries: 0,
+        segment_count: 4,
+        ..FetchConfig::default()
+    })
+    .unwrap();
+    let outcome = fetcher.fetch(&resource, None).await.unwrap();
+    assert_eq!(outcome.bytes_written, data.len() as u64);
+    assert_eq!(tokio::fs::read(&resource.target_path).await.unwrap(), data);
+    assert_eq!(server.ranges().await.len(), 4);
+    for path in paths {
+        assert!(!path.exists());
+    }
+}
+
+#[tokio::test]
+async fn recovery_refetches_corrupt_completed_media_and_preserves_valid_inputs() {
+    let dir = temp_case_dir("media-recovery").await;
+    let mut resource = resource("http://unused".to_owned(), &dir, "video.m4s");
+    resource.status = ResourceStatus::Completed;
+    assert!(completed_media_needs_redownload(&resource).await.unwrap());
+    for header in [
+        b"\0\0\0\x20ftypiso5".as_slice(),
+        b"FLV\x01\0\0\0\0\x09".as_slice(),
+        b"\x1a\x45\xdf\xa3".as_slice(),
+    ] {
+        tokio::fs::write(&resource.target_path, header)
+            .await
+            .unwrap();
+        assert!(!completed_media_needs_redownload(&resource).await.unwrap());
+    }
+    tokio::fs::write(
+        &resource.target_path,
+        [0xd3, 0x7a, 0x19, 0x42, 0x85, 0xb3, 0x2f, 0x67],
+    )
+    .await
+    .unwrap();
+    assert!(completed_media_needs_redownload(&resource).await.unwrap());
+    resource.intent = DownloadResourceIntent::Audio;
+    assert!(completed_media_needs_redownload(&resource).await.unwrap());
+    tokio::fs::write(&resource.target_path, b"ID3\x04\0\0\0\0\0\0")
+        .await
+        .unwrap();
+    assert!(!completed_media_needs_redownload(&resource).await.unwrap());
+    resource.intent = DownloadResourceIntent::Cover;
+    tokio::fs::write(&resource.target_path, b"not a media header")
+        .await
+        .unwrap();
+    assert!(!completed_media_needs_redownload(&resource).await.unwrap());
+    resource.intent = DownloadResourceIntent::Video;
+    resource.status = ResourceStatus::Pending;
+    assert!(!completed_media_needs_redownload(&resource).await.unwrap());
 }
 
 #[tokio::test]
@@ -522,7 +600,7 @@ fn sorted_range_headers(ranges: Vec<Option<String>>) -> Vec<String> {
 }
 
 fn segment_path(temp_path: &Path, index: usize) -> PathBuf {
-    PathBuf::from(format!("{}.seg{index}", temp_path.display()))
+    segment_path_for(temp_path, index)
 }
 
 async fn temp_case_dir(name: &str) -> PathBuf {
