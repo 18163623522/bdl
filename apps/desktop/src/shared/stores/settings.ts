@@ -644,7 +644,7 @@ const normalizeSettings = (saved: SettingsSnapshot): SettingsSnapshot => {
     media_mode: ['audio_video', 'video_only', 'audio_only'].includes(settings.media_mode) ? settings.media_mode : 'audio_video',
     audio_output_format: settings.audio_output_format === 'mp3' ? 'mp3' : 'm4s',
     subtitle_format: settings.subtitle_format === 'ass' ? 'ass' : 'srt',
-    danmaku_format: settings.danmaku_format === 'html' ? 'html' : 'xml',
+    danmaku_format: settings.danmaku_format === 'html' || settings.danmaku_format === 'srt' || settings.danmaku_format === 'ass' ? settings.danmaku_format : 'xml',
     duplicate_naming_strategy: duplicateNamingStrategies.has(settings.duplicate_naming_strategy)
       ? settings.duplicate_naming_strategy
       : 'skip_existing',

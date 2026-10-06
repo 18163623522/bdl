@@ -3262,10 +3262,10 @@ test('ten thousand parsed rows stay virtual while selection covers the whole sou
     .toBe(true);
 });
 
-for (const [format, width, theme] of [
-  ['m4s', 1280, 'light'],
-  ['mp3', 900, 'dark'],
-  ['mp3', 375, 'light'],
+for (const [format, width, theme, danmakuFormat] of [
+  ['m4s', 1280, 'light', 'HTML（离线播放）'],
+  ['mp3', 900, 'dark', 'SRT（字幕显示）'],
+  ['mp3', 375, 'light', 'ASS（滚动弹幕）'],
 ] as const) {
   test(`download recipe remembers ${format} at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
@@ -3285,7 +3285,8 @@ for (const [format, width, theme] of [
     await editor.getByRole('combobox', { name: '字幕格式', exact: true }).click();
     await page.getByRole('option', { name: 'ASS', exact: true }).click();
     await editor.getByRole('combobox', { name: '弹幕格式', exact: true }).click();
-    await page.getByRole('option', { name: 'HTML（离线播放）', exact: true }).click();
+    await page.getByRole('option', { name: danmakuFormat, exact: true }).click();
+    await editor.getByRole('checkbox', { name: '额外保留原始弹幕（XML）', exact: true }).check();
     await page.screenshot({ path: testInfo.outputPath('recipe-editor.png'), animations: 'disabled' });
     await editor.getByRole('button', { name: '保存预设', exact: true }).click();
     await expect(editor).not.toBeVisible();
@@ -3305,6 +3306,8 @@ for (const [format, width, theme] of [
     const preset = dialog.getByRole('combobox', { name: /^下载预设/ });
     await expect(preset).toContainText('我的音频与字幕');
     await expect(dialog.getByLabel('本次输出预览')).toContainText(`独立音频 ${format.toUpperCase()}`);
+    await expect(dialog.getByLabel('本次输出预览')).toContainText(`弹幕 ${danmakuFormat.split('（')[0]}`);
+    await expect(dialog.getByLabel('本次输出预览')).toContainText('原始弹幕');
     await dialog.getByRole('button', { name: '取消', exact: true }).click();
     await page.getByRole('button', { name: '下载所选 (1)' }).click();
     await expect(preset).toContainText('我的音频与字幕');

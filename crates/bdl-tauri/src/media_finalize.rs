@@ -179,7 +179,22 @@ pub(crate) async fn prepare_sidecars(task: &DownloadTask) -> BdlResult<()> {
             DownloadResourceIntent::Danmaku
                 if source.extension().is_some_and(|ext| ext == "xml") =>
             {
-                bdl_core::danmaku::xml_to_html(&raw)?
+                match output.extension().and_then(|ext| ext.to_str()) {
+                    Some("html") => bdl_core::danmaku::xml_to_html(&raw)?,
+                    Some("srt") => bdl_core::danmaku::xml_to_subtitle(
+                        &raw,
+                        bdl_core::danmaku::DanmakuFormat::Srt,
+                    )?,
+                    Some("ass") => bdl_core::danmaku::xml_to_subtitle(
+                        &raw,
+                        bdl_core::danmaku::DanmakuFormat::Ass,
+                    )?,
+                    _ => {
+                        return Err(BdlError::Planning {
+                            message: "弹幕转换格式无效。".into(),
+                        });
+                    }
+                }
             }
             _ => {
                 return Err(BdlError::Planning {
@@ -489,6 +504,52 @@ mod tests {
             scheduled_at: None,
             speed_limit_bytes_per_second: None,
         }
+    }
+
+    #[tokio::test]
+    async fn danmaku_subtitle_formats_write_real_outputs_and_recover_after_source_cleanup() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.task")
+            .join(format!("danmaku-subtitles-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        for format in [
+            bdl_core::danmaku::DanmakuFormat::Srt,
+            bdl_core::danmaku::DanmakuFormat::Ass,
+        ] {
+            let mut resource = resource(DownloadResourceIntent::Danmaku);
+            resource.target_path = dir.join(format!("{}.xml", format.extension()));
+            resource.status = ResourceStatus::Completed;
+            tokio::fs::write(
+                &resource.target_path,
+                r#"<i><d p="2.5,1,25,16777215">中文弹幕</d></i>"#,
+            )
+            .await
+            .unwrap();
+            let mut task = task(vec![resource.clone()]);
+            task.media_selection.processing = Some(bdl_core::queue::TaskProcessingOptions {
+                danmaku_format: Some(format),
+                ..Default::default()
+            });
+            let restored: DownloadTask =
+                serde_json::from_str(&serde_json::to_string(&task).unwrap()).unwrap();
+            super::prepare_sidecars(&restored).await.unwrap();
+            let output = super::sidecar_output_path(&restored, &resource);
+            let content = tokio::fs::read_to_string(&output).await.unwrap();
+            assert!(content.contains("中文弹幕"));
+            assert!(
+                content.contains(if format == bdl_core::danmaku::DanmakuFormat::Srt {
+                    "00:00:02,500 --> 00:00:06,500"
+                } else {
+                    "Dialogue: 0,0:00:02.50,0:00:10.50"
+                })
+            );
+            assert!(!content.contains("<i>"));
+            assert!(resource.target_path.is_file());
+            tokio::fs::remove_file(&resource.target_path).await.unwrap();
+            super::prepare_sidecars(&restored).await.unwrap();
+            assert_eq!(tokio::fs::read_to_string(&output).await.unwrap(), content);
+        }
+        tokio::fs::remove_dir_all(&dir).await.unwrap();
     }
 
     #[tokio::test]

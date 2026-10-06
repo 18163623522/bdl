@@ -132,7 +132,7 @@ impl DownloadWorkflow {
             ));
         }
         if !matches!(self.subtitles.format.as_str(), "original" | "srt" | "ass")
-            || !matches!(self.danmaku.format.as_str(), "xml" | "html")
+            || !matches!(self.danmaku.format.as_str(), "xml" | "html" | "srt" | "ass")
             || self.cover.format != "original"
             || self.danmaku.embed
         {
@@ -241,10 +241,11 @@ impl DownloadWorkflow {
                 "ass" => Some(crate::subtitles::SubtitleFormat::Ass),
                 _ => None,
             },
-            danmaku_format: Some(if self.danmaku.format == "html" {
-                crate::danmaku::DanmakuFormat::Html
-            } else {
-                crate::danmaku::DanmakuFormat::Xml
+            danmaku_format: Some(match self.danmaku.format.as_str() {
+                "html" => crate::danmaku::DanmakuFormat::Html,
+                "srt" => crate::danmaku::DanmakuFormat::Srt,
+                "ass" => crate::danmaku::DanmakuFormat::Ass,
+                _ => crate::danmaku::DanmakuFormat::Xml,
             }),
         });
         options.workflow = Some(self.clone());

@@ -1,6 +1,6 @@
 [package]
 name = "bdl-core"
-version = "0.7.1"
+version = "0.8.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -15,6 +15,7 @@ futures.workspace = true
 fs2.workspace = true
 flate2.workspace = true
 qrcode.workspace = true
+quick-xml = { version = "0.38.4", features = ["serialize"] }
 reqwest.workspace = true
 rusqlite.workspace = true
 serde.workspace = true

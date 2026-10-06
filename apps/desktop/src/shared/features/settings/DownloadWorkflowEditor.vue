@@ -163,12 +163,17 @@ const subtitleFormat = computed({
             :options="[
               { label: '不转换（XML）', value: 'xml' },
               { label: 'HTML（离线播放）', value: 'html' },
+              { label: 'SRT（字幕显示）', value: 'srt' },
+              { label: 'ASS（滚动弹幕）', value: 'ass' },
             ]"
             :disabled="disabled"
           />
+          <p class="settings-note">
+            SRT 按普通字幕显示；ASS 保留滚动和固定位置，需要播放器支持 ASS 特效。高级与脚本弹幕不转换。
+          </p>
           <UiCheckbox v-model="flow.danmaku.save" label="保存独立弹幕" :disabled="disabled" />
           <UiCheckbox
-            v-if="flow.danmaku.format === 'html'"
+            v-if="flow.danmaku.format !== 'xml'"
             v-model="flow.danmaku.retain_original"
             label="额外保留原始弹幕（XML）"
             :disabled="disabled"

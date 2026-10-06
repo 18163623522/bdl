@@ -284,7 +284,7 @@ export interface SettingsSnapshot {
   media_mode: DownloadMediaMode
   audio_output_format: 'm4s' | 'mp3'
   subtitle_format: 'srt' | 'ass'
-  danmaku_format: 'xml' | 'html'
+  danmaku_format: 'xml' | 'html' | 'srt' | 'ass'
   duplicate_naming_strategy: DuplicateNamingStrategy
   audio_quality: string
   codec: VideoCodecPreference

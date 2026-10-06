@@ -19,6 +19,56 @@ use bdl_core::queue::DownloadTaskRefreshInput;
 use bdl_core::queue::{DownloadResourceIntent, DownloadResourceKind, ResourceStatus, TaskStatus};
 
 #[test]
+fn danmaku_subtitle_workflows_plan_converted_files_and_keep_xml_sources() {
+    for format in ["srt", "ass"] {
+        let mut workflow = bdl_core::workflow::DownloadWorkflow::default();
+        workflow.danmaku.enabled = true;
+        workflow.danmaku.format = format.into();
+        workflow.danmaku.retain_original = true;
+        let mut options = DownloadOptions::new(PathBuf::from("downloads"));
+        workflow.apply(&mut options).unwrap();
+        assert_eq!(
+            options
+                .processing
+                .unwrap()
+                .danmaku_format
+                .unwrap()
+                .extension(),
+            format
+        );
+        let tasks = plan_selected_parts(
+            &fixture_tree(true),
+            &[PartId("part:BV1:100".into())],
+            &options,
+        )
+        .unwrap();
+        let task = &tasks[0];
+        let source = task
+            .resources
+            .iter()
+            .find(|r| r.intent == DownloadResourceIntent::Danmaku)
+            .unwrap();
+        assert_eq!(source.target_path.extension().unwrap(), "xml");
+        let artifacts: Vec<_> = task
+            .media_selection
+            .artifacts
+            .iter()
+            .filter(|a| a.intent == Some(DownloadResourceIntent::Danmaku))
+            .collect();
+        assert!(
+            artifacts
+                .iter()
+                .any(|a| !a.original && a.path.extension().unwrap() == format)
+        );
+        assert!(
+            artifacts
+                .iter()
+                .any(|a| a.original && a.path.extension().unwrap() == "xml")
+        );
+    }
+}
+
+#[test]
 fn plan_selected_parts_creates_one_task_for_one_selected_part() {
     let tree = fixture_tree(true);
     let options = DownloadOptions::new(PathBuf::from("downloads"));

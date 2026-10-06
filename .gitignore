@@ -62,6 +62,7 @@ apps/**/src-tauri/downloads/
 
 # Local work notes and handoffs
 /flightdeck/
+/.task/
 
 # Local Distribution publishing tools and configuration
 /local-release/

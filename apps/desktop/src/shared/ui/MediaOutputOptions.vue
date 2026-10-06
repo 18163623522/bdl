@@ -20,7 +20,7 @@ const modes = [{ label: '音频+视频', value: 'audio_video' }, { label: '仅�
 const formats = [{ label: 'MP4', value: 'mp4' }, { label: 'MKV', value: 'mkv' }];
 const audioFormats = [{ label: '不转换（m4s）', value: 'm4s' }, { label: '转为 MP3', value: 'mp3' }];
 const subtitleFormats = [{ label: '转换为 SRT', value: 'srt' }, { label: '转换为 ASS', value: 'ass' }];
-const danmakuFormats = [{ label: 'XML', value: 'xml' }, { label: 'HTML（离线播放）', value: 'html' }];
+const danmakuFormats = [{ label: 'XML', value: 'xml' }, { label: 'HTML（离线播放）', value: 'html' }, { label: 'SRT（字幕显示）', value: 'srt' }, { label: 'ASS（滚动弹幕）', value: 'ass' }];
 const setAsset = (key: keyof ArchiveAssetSelection, value: boolean) => { assets.value = { ...assets.value, [key]: value }; };
 const downloadCover = computed({ get: () => assets.value.cover || (includesVideo.value && cover.value), set: (value: boolean) => { setAsset('cover', value); if (!value) cover.value = false; } });
 const downloadSubtitles = computed({ get: () => assets.value.subtitles || (includesVideo.value && subtitles.value), set: (value: boolean) => { setAsset('subtitles', value); if (!value) subtitles.value = false; } });

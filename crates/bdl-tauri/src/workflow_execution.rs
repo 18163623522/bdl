@@ -353,6 +353,124 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "live Bilibili probe: set BDL_DANMAKU_LIVE_DIR, BDL_DANMAKU_LIVE_BVIDS and BDL_TEST_FFMPEG"]
+    async fn live_danmaku_videos_download_and_publish_srt_ass() {
+        use bdl_core::fetcher::{FetchConfig, Fetcher, ReqwestFetcher};
+        use bdl_core::input::ClassifiedInput;
+        use bdl_core::planner::{DownloadOptions, plan_selected_parts};
+        use bdl_core::resolver::video::VideoResolver;
+        use bdl_core::resolver::{ResolveOptions, Resolver};
+
+        let root = PathBuf::from(std::env::var("BDL_DANMAKU_LIVE_DIR").unwrap());
+        let bvids = std::env::var("BDL_DANMAKU_LIVE_BVIDS").unwrap();
+        let ffmpeg = PathBuf::from(std::env::var("BDL_TEST_FFMPEG").unwrap());
+        let fetcher = ReqwestFetcher::with_config(FetchConfig {
+            max_retries: 0,
+            ..Default::default()
+        })
+        .unwrap()
+        .with_stop_on_restriction();
+        let mut receipts = Vec::new();
+        for bvid in bvids.split(',') {
+            let tree = VideoResolver::new()
+                .unwrap()
+                .resolve(
+                    ClassifiedInput::VideoBvid(bvid.into()),
+                    ResolveOptions {
+                        fetch_streams: true,
+                    },
+                )
+                .await
+                .unwrap();
+            let item = &tree.groups[0].items[0];
+            let part = &item.parts[0];
+            let mut downloaded: Option<DownloadTask> = None;
+            for format in ["srt", "ass"] {
+                let mut workflow = DownloadWorkflow {
+                    quality: "16".into(),
+                    codec: "avc".into(),
+                    ..Default::default()
+                };
+                workflow.video.retain_original = true;
+                workflow.audio.retain_original = true;
+                workflow.danmaku.enabled = true;
+                workflow.danmaku.format = format.into();
+                workflow.danmaku.retain_original = true;
+                let mut options = DownloadOptions::new(root.join(bvid).join(format));
+                options.naming_template = "{bvid}.{ext}".into();
+                workflow.apply(&mut options).unwrap();
+                let mut task = plan_selected_parts(&tree, std::slice::from_ref(&part.id), &options)
+                    .unwrap()
+                    .remove(0);
+                fs::create_dir_all(task.output_path.parent().unwrap())
+                    .await
+                    .unwrap();
+                for resource in &mut task.resources {
+                    if let Some(previous) = &downloaded {
+                        let source = previous
+                            .resources
+                            .iter()
+                            .find(|old| old.intent == resource.intent)
+                            .unwrap();
+                        fs::copy(&source.target_path, &resource.target_path)
+                            .await
+                            .unwrap();
+                    } else {
+                        fetcher.fetch(resource, None).await.unwrap();
+                    }
+                    resource.status = ResourceStatus::Completed;
+                }
+                // Exercise the persisted workflow snapshot, not a standalone converter.
+                let mut restored: DownloadTask =
+                    serde_json::from_str(&serde_json::to_string(&task).unwrap()).unwrap();
+                execute(&restored, &MediaMuxBackend::desktop(), Some(ffmpeg.clone()))
+                    .await
+                    .unwrap();
+                assert!(outputs_complete(&restored).await);
+                let source = restored
+                    .resources
+                    .iter()
+                    .find(|resource| resource.intent == Intent::Danmaku)
+                    .unwrap();
+                let output = crate::media_finalize::sidecar_output_path(&restored, source);
+                let raw = fs::read_to_string(&source.target_path).await.unwrap();
+                let content = fs::read_to_string(&output).await.unwrap();
+                assert!(raw.contains("<d "));
+                let cues = if format == "srt" {
+                    assert!(content.contains(" --> "));
+                    content.matches(" --> ").count()
+                } else {
+                    assert!(content.contains("[Events]"));
+                    content.matches("Dialogue: ").count()
+                };
+                assert!(cues > 0);
+                assert!(!content.contains("<i>"));
+                restored.media_selection.outputs_verified = true;
+                assert!(cleanup(&restored).await.is_empty());
+                assert!(source.target_path.is_file());
+                receipts.push(serde_json::json!({
+                    "bvid": bvid, "title": item.title, "cid": part.cid,
+                    "duration_seconds": item.duration_seconds, "format": format,
+                    "xml_comments": raw.matches("<d ").count(), "cues": cues,
+                    "video": restored.output_path, "subtitle": output, "xml": source.target_path,
+                }));
+                println!("{bvid} {format}: {cues} cues, media and retained XML verified");
+                if downloaded.is_none() {
+                    downloaded = Some(restored);
+                }
+            }
+            // A small public sample set; do not make this probe a bulk downloader.
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        fs::write(
+            root.join("receipt.json"),
+            serde_json::to_vec_pretty(&receipts).unwrap(),
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
     async fn subtitle_only_formats_are_real_files_without_ffmpeg_and_retention_is_explicit() {
         for format in ["srt", "ass", "original"] {
             for retain in [false, true] {

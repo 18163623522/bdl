@@ -287,13 +287,13 @@ it('expands legacy unrestricted video rules into the default concrete quality or
 describe('direct attachment choices and media output', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('remembers download formats while preserving an unrelated unsaved naming draft', async () => {
+  it.each(['html', 'srt', 'ass'] as const)('remembers danmaku %s while preserving an unrelated unsaved naming draft', async (danmaku_format) => {
     vi.resetAllMocks()
     const store = useSettingsStore()
     store.loaded = true
     store.draft.naming_template = '{bvid}.{ext}'
     mockedSettingsUpdate.mockImplementation(async (value) => value)
-    await store.saveAppPreferences({ media_mode: 'audio_only', audio_output_format: 'mp3', subtitle_format: 'ass', danmaku_format: 'html' })
+    await store.saveAppPreferences({ media_mode: 'audio_only', audio_output_format: 'mp3', subtitle_format: 'ass', danmaku_format })
     expect(store.saved.media_mode).toBe('audio_only')
     expect(store.saved.audio_output_format).toBe('mp3')
     expect(store.draft.naming_template).toBe('{bvid}.{ext}')
@@ -301,7 +301,7 @@ describe('direct attachment choices and media output', () => {
     setActivePinia(createPinia())
     const restarted = useSettingsStore()
     restarted.apply(persisted)
-    expect(restarted.saved).toMatchObject({ media_mode: 'audio_only', audio_output_format: 'mp3', subtitle_format: 'ass', danmaku_format: 'html' })
+    expect(restarted.saved).toMatchObject({ media_mode: 'audio_only', audio_output_format: 'mp3', subtitle_format: 'ass', danmaku_format })
   })
 
   it('starts with no standalone files and changes only the checked attachment', () => {
