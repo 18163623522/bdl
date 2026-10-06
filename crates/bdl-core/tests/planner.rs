@@ -19,6 +19,30 @@ use bdl_core::queue::DownloadTaskRefreshInput;
 use bdl_core::queue::{DownloadResourceIntent, DownloadResourceKind, ResourceStatus, TaskStatus};
 
 #[test]
+fn custom_names_get_the_selected_workflow_container() {
+    for container in ["mp4", "mkv"] {
+        let mut options = DownloadOptions::new(PathBuf::from("downloads"));
+        let workflow = bdl_core::workflow::DownloadWorkflow {
+            container: container.into(),
+            ..Default::default()
+        };
+        workflow.apply(&mut options).unwrap();
+        options.naming_template = "我的文件".into();
+        let tasks = plan_selected_parts(
+            &fixture_tree(true),
+            &[PartId("part:BV1:100".into())],
+            &options,
+        )
+        .unwrap();
+        assert_eq!(
+            tasks[0].output_path,
+            PathBuf::from(format!("downloads/我的文件.{container}"))
+        );
+        assert_eq!(tasks[0].media_selection.container, container);
+    }
+}
+
+#[test]
 fn danmaku_subtitle_workflows_plan_converted_files_and_keep_xml_sources() {
     for format in ["srt", "ass"] {
         let mut workflow = bdl_core::workflow::DownloadWorkflow::default();

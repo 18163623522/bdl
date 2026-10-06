@@ -2745,7 +2745,11 @@ test('saved naming presets are reusable while unsaved defaults stay in settings'
   await page.goto('/');
   await page.getByRole('button', { name: '设置 偏好与维护' }).click();
   await page.getByRole('button', { name: /文件命名/ }).click();
-  await page.getByRole('textbox', { name: '命名模板', exact: true }).fill('{owner_name}/{title}.{ext}');
+  await page.getByRole('textbox', { name: '命名模板', exact: true }).fill('{owner_name}/{title}');
+  await expect(page.getByText('文件名预览：')).toContainText('示例UP/示例视频.mp4');
+  await page.getByRole('button', { name: '插入魔法变量', exact: true }).click();
+  await expect(page.locator('[data-variable="ext"]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await page.getByRole('textbox', { name: '预设名称', exact: true }).fill('按 UP 收藏');
   await page.getByRole('button', { name: '保存为预设', exact: true }).click();
   await page.getByRole('button', { name: '保存', exact: true }).click();

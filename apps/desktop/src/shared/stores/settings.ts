@@ -19,7 +19,7 @@ import { NOTICE_CLEAR_DELAY } from './feedback'
 import { fillMissingDefaults } from '../utils/settingsDefaults'
 import { builtinDownloadPresets, cloneDownloadPresets, migrateDownloadPresets, downloadPresetsError } from '../utils/downloadWorkflow'
 
-export const defaultNamingTemplate = '{title}/P{part_index} - {part_title}.{ext}'
+export const defaultNamingTemplate = '{title}/P{part_index} - {part_title}'
 export const embeddingContainerError = (
   settings: Pick<SettingsSnapshot, 'output_extension' | 'embed_cover' | 'embed_subtitles'>,
 ): string | null =>
@@ -37,9 +37,9 @@ export const selectedArchiveAssets = (
 
 export const namingTemplatePresets = [
   { label: '分P视频', value: defaultNamingTemplate },
-  { label: '单文件', value: '{title}.{ext}' },
-  { label: '合集/列表', value: '{collection_title}/{index} - {title}.{ext}' },
-  { label: '番剧/课程', value: '{series_title}/{episode_index} - {episode_title}.{ext}' },
+  { label: '单文件', value: '{title}' },
+  { label: '合集/列表', value: '{collection_title}/{index} - {title}' },
+  { label: '番剧/课程', value: '{series_title}/{episode_index} - {episode_title}' },
 ]
 
 export const namingVariables = [
@@ -60,7 +60,6 @@ export const namingVariables = [
   { name: 'codec', desc: '编码' },
   { name: 'date', desc: '下载日期（任务创建日）' },
   { name: 'publish_date', desc: '发布时间（B站发布日期）' },
-  { name: 'ext', desc: '扩展名' },
 ]
 
 const defaultSettings = (): SettingsSnapshot => ({
@@ -124,8 +123,8 @@ const concurrentTaskCounts = new Set([1, 2, 3, 5])
 const retryCounts = new Set([0, 1, 3, 5])
 const segmentCounts = new Set([1, 2, 4, 8])
 // `season_index` was advertised before the source model had a reliable season ordinal.
-// Keep accepting saved templates for compatibility, but do not offer it for new templates.
-const namingVariableNames = new Set([...namingVariables.map((variable) => variable.name), 'season_index'])
+// Extensions are automatic now. Accept both legacy variables without offering them in the menu.
+const namingVariableNames = new Set([...namingVariables.map((variable) => variable.name), 'season_index', 'ext'])
 
 interface SettingsState {
   saved: SettingsSnapshot
@@ -764,10 +763,16 @@ export const previewTemplate = (template: string, ext: string): string => {
     ext,
   }
 
-  return (template || defaultSettings().naming_template).replace(
+  const rendered = (template || defaultSettings().naming_template).replace(
     /\{([^{}]+)\}/g,
     (_, key: string) => values[key.trim()] ?? '',
   )
+  const extension = ext.trim().replace(/^\.+|\.+$/g, '')
+  const path = rendered.split(/[/\\]/).map((component) => component
+    .trim().replace(/^\.+|\.+$/g, '') || 'untitled').join('/')
+  return extension && !path.toLowerCase().endsWith(`.${extension.toLowerCase()}`)
+    ? `${path}.${extension}`
+    : path
 }
 
 const errorMessage = (error: unknown): string => {

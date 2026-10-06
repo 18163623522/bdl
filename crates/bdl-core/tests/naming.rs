@@ -8,6 +8,32 @@ use bdl_core::naming::{
 };
 
 #[test]
+fn custom_names_always_end_in_the_output_extension() -> Result<(), BdlError> {
+    for (template, ext, expected) in [
+        ("我的视频", "mp4", "我的视频.mp4"),
+        ("{title}/{part_title}", "mkv", "Fixture/Opening.mkv"),
+        ("第1.2集", "mp3", "第1.2集.mp3"),
+        ("{title}.{ext}", "m4s", "Fixture.m4s"),
+        ("我的视频.MP4", "mp4", "我的视频.MP4"),
+        ("我的视频.mp4", "mkv", "我的视频.mp4.mkv"),
+        ("我的视频. ", "mp4", "我的视频.mp4"),
+        ("{ ext }/我的视频", "mp4", "mp4/我的视频.mp4"),
+    ] {
+        let context = NamingContext {
+            title: "Fixture",
+            part_title: "Opening",
+            ext,
+            ..NamingContext::default()
+        };
+        assert_eq!(
+            render_output_path(template, &context)?,
+            PathBuf::from(expected)
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn render_output_path_replaces_known_variables() -> Result<(), BdlError> {
     let context = NamingContext {
         title: "Fixture",

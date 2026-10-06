@@ -11,11 +11,12 @@ const custom = ref(false)
 const selectedId = ref('')
 const choices = computed(() => [
   ...namingTemplatePresets.map((preset, index) => ({ label: preset.label, value: `builtin-${index}`, template: preset.value })),
-  { label: '直接保存到下载目录', value: 'direct', template: '{title} - P{part_index} - {part_title}.{ext}' },
+  { label: '直接保存到下载目录', value: 'direct', template: '{title} - P{part_index} - {part_title}' },
   ...props.presets.map((preset) => ({ label: preset.name, value: preset.id, template: preset.template })),
 ])
+const matchesTemplate = (template: string) => template === model.value || `${template}.{ext}` === model.value
 const selected = computed({
-  get: () => custom.value ? 'custom' : choices.value.find((item) => item.value === selectedId.value && item.template === model.value)?.value ?? choices.value.find((item) => item.template === model.value)?.value ?? 'custom',
+  get: () => custom.value ? 'custom' : choices.value.find((item) => item.value === selectedId.value && matchesTemplate(item.template))?.value ?? choices.value.find((item) => matchesTemplate(item.template))?.value ?? 'custom',
   set: (value: string) => {
     custom.value = value === 'custom'
     selectedId.value = value

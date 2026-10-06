@@ -8,6 +8,8 @@ import {
   embeddingContainerError,
   selectedArchiveAssets,
   namingVariables,
+  namingTemplatePresets,
+  previewTemplate,
   useSettingsStore,
   validateNamingTemplate,
 } from './settings'
@@ -217,8 +219,30 @@ describe('naming template persistence', () => {
 
   it('keeps every advertised magic variable valid', () => {
     for (const variable of namingVariables) {
-      expect(validateNamingTemplate(`{${variable.name}}.{ext}`)).toBeNull()
+      expect(validateNamingTemplate(`{${variable.name}}`)).toBeNull()
     }
+  })
+
+  it('omits extension variables from presets and the variable menu while accepting old templates', () => {
+    expect(namingVariables.some((variable) => variable.name === 'ext')).toBe(false)
+    for (const preset of namingTemplatePresets) {
+      expect(preset.value).not.toContain('{ext}')
+      expect(previewTemplate(preset.value, 'mkv')).toMatch(/\.mkv$/)
+    }
+    expect(validateNamingTemplate('{title}.{ext}')).toBeNull()
+  })
+
+  it.each([
+    ['我的视频', 'mp4', '我的视频.mp4'],
+    ['{title}/{part_title}', 'mkv', '示例视频/开场.mkv'],
+    ['第1.2集', 'mp3', '第1.2集.mp3'],
+    ['{title}.{ext}', 'm4s', '示例视频.m4s'],
+    ['我的视频.MP4', 'mp4', '我的视频.MP4'],
+    ['我的视频.mp4', 'mkv', '我的视频.mp4.mkv'],
+    ['我的视频. ', 'mp4', '我的视频.mp4'],
+    ['{ ext }/我的视频', 'mp4', 'mp4/我的视频.mp4'],
+  ])('previews the actual output extension for %s', (template, extension, expected) => {
+    expect(previewTemplate(template, extension)).toBe(expected)
   })
 })
 

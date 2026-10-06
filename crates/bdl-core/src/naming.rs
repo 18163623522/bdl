@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{BdlError, BdlResult};
 
-pub const DEFAULT_NAMING_TEMPLATE: &str = "{title}/P{part_index} - {part_title}.{ext}";
+pub const DEFAULT_NAMING_TEMPLATE: &str = "{title}/P{part_index} - {part_title}";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -54,6 +54,20 @@ pub fn render_output_path(template: &str, context: &NamingContext<'_>) -> BdlRes
         return Err(BdlError::Planning {
             message: "命名模板渲染结果为空。".to_owned(),
         });
+    }
+
+    let extension = sanitize_variable_value(context.ext);
+    if !extension.is_empty()
+        && !path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case(&extension))
+    {
+        // Append rather than replace: dots may be part of the custom name.
+        let mut file_name = path.file_name().unwrap_or_default().to_os_string();
+        file_name.push(".");
+        file_name.push(extension);
+        path.set_file_name(file_name);
     }
 
     Ok(path)
